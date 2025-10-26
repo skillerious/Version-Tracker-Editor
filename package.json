@@ -1,0 +1,43 @@
+{
+  "name": "version-tracker",
+  "version": "1.0.0",
+  "description": "VS Code-like Version Tracker editor for repoversion.json",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "author": "Skillerious — Robin Doak",
+  "license": "MIT",
+  "dependencies": {
+    "electron-store": "^11.0.2",
+    "marked": "^15.0.4"
+  },
+  "optionalDependencies": {
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "electron": "^31.3.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.skillerious.versiontracker",
+    "productName": "Version Tracker",
+    "files": [
+      "main.js",
+      "preload.cjs",
+      "renderer.js",
+      "index.html",
+      "styles.css",
+      "assets/**/*"
+    ],
+    "asar": true,
+    "publish": null,
+    "win": {
+      "icon": "assets/icon.ico"
+    }
+  }
+}

@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <title>Version Tracker — Skillerious</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self';
+                 script-src 'self';
+                 style-src 'self';
+                 img-src 'self' data:;
+                 connect-src 'self' https://api.github.com;
+                 font-src 'self';
+                 object-src 'none';
+                 base-uri 'none'">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Titlebar -->
+  <div id="titlebar" class="drag">
+    <div class="tb-left">
+      <img class="tb-icon" src="assets/logo.ico" alt="" />
+      <div class="tb-brand">
+        <span class="brand-title">Version Tracker</span>
+        <span class="brand-sub">By Skillerious</span>
+      </div>
+    </div>
+    <div class="tb-center">
+      <span id="repoLabel" class="tb-repo muted">skillerious/Version-Tracker@main</span>
+    </div>
+    <div class="tb-right no-drag">
+      <button id="winMin" class="tb-btn tb-btn-min" title="Minimize" aria-label="Minimize"><span aria-hidden="true"></span></button>
+      <button id="winMax" class="tb-btn tb-btn-max" title="Maximize" aria-label="Maximize"><span aria-hidden="true"></span></button>
+      <button id="winClose" class="tb-btn tb-btn-close" title="Close" aria-label="Close"><span aria-hidden="true"></span></button>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <header id="toolbar" role="toolbar" aria-label="Main toolbar">
+    <div class="tool-left">
+      <button id="btnFetch" title="Fetch (F5)"><img src="assets/ic-refresh.svg" alt="" /></button>
+      <button id="btnCommit" title="Commit (Ctrl+S)"><img src="assets/ic-git-commit.svg" alt="" /></button>
+      <span class="sep"></span>
+      <button id="btnOpenLocal" title="Open local"><img src="assets/ic-folder-open.svg" alt="" /></button>
+      <button id="btnSaveLocal" title="Save local"><img src="assets/ic-save.svg" alt="" /></button>
+      <span class="sep"></span>
+      <button id="btnOnboarding" title="Getting started"><img src="assets/ic-shield-check.svg" alt="" /></button>
+      <button id="btnToken" title="GitHub Token"><img src="assets/ic-settings.svg" alt="" /></button>
+      <button id="btnAbout" title="About"><img src="assets/ic-about.svg" alt="" /></button>
+    </div>
+    <div class="tool-center">
+      <div class="toolbar-meta">
+        <div id="breadcrumbs" class="bc-wrap">
+          <div id="bcTrack" class="bc-track" role="navigation" aria-label="Breadcrumbs"></div>
+        </div>
+      </div>
+    </div>
+    <div class="tool-right"></div>
+  </header>
+
+  <div id="toastStack" class="toast-stack" aria-live="polite" aria-atomic="false"></div>
+
+  <!-- Activity Bar -->
+  <nav id="activity">
+    <div class="activity-top">
+      <button data-tab="tab-editor" title="Editor"><img src="assets/ic-identity.svg" alt="Editor"></button>
+      <button data-tab="tab-wizard" title="Wizard"><img src="assets/ic-wand.svg" alt="Wizard"></button>
+      <button data-tab="tab-preview" title="Preview"><img src="assets/ic-files.svg" alt="Preview"></button>
+    </div>
+    <div class="activity-bottom">
+      <button data-tab="tab-settings" title="Settings"><img src="assets/ic-settings.svg" alt="Settings"></button>
+    </div>
+  </nav>
+
+  <!-- Workbench -->
+  <div id="workbench">
+    <aside id="sidebar" aria-label="Applications">
+      <div class="side-head">
+        <div class="side-title">Applications</div>
+        <div class="side-sub">repoversion.json</div>
+      </div>
+
+      <ul id="appsList" class="list"></ul>
+
+      <div class="side-actions">
+        <button id="btnAddApp"><img src="assets/ic-identity.svg" alt=""/>Add</button>
+        <button id="btnDupApp"><img src="assets/ic-files.svg" alt=""/>Duplicate</button>
+        <button id="btnDelApp" class="danger"><img src="assets/ic-beta.svg" alt=""/>Delete</button>
+      </div>
+
+      <div class="side-footer">
+        <div id="shaBadge" class="side-sha pill pill-dim">SHA &mdash;</div>
+      </div>
+      <div id="sidebar-resize-handle" title="Resize"></div>
+    </aside>
+
+    <section id="content">
+      <!-- Editor Tab -->
+      <div id="tab-editor" class="tabpage active">
+        <div id="editorTabBar" class="editor-tabbar">
+          <button class="editor-tab active" data-section="section-dataset" id="editorTabDataset">Dataset</button>
+          <button class="editor-tab" data-section="section-app" id="editorTabApp">App details</button>
+          <button class="editor-tab" data-section="section-stable" id="editorTabStable">Stable track</button>
+          <button class="editor-tab" data-section="section-beta" id="editorTabBeta">Beta track</button>
+          <button class="editor-tab" data-section="section-history" id="editorTabHistory">History</button>
+          <div id="selectedAppPill" class="editor-selected-pill pill pill-dim" role="status" aria-live="polite">No app selected</div>
+        </div>
+
+        <div id="editorSections">
+          <section id="section-dataset" class="editor-section active" aria-labelledby="editorTabDataset">
+            <div class="notice notice-info" data-icon="E">
+              <strong>Editing workspace</strong>
+              <p>Use the controls below to manage dataset metadata, release tracks, and history entries. All edits stay local until you fetch or commit.</p>
+            </div>
+            <div class="card">
+              <div class="card-title">Dataset</div>
+              <div class="grid grid-2">
+                <label class="field"><span>Contact</span><input id="edContact" type="text" placeholder="Contact info for manifest" /></label>
+                <label class="field"><span>Generated</span><input id="edGenerated" type="text" disabled /></label>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-app" class="editor-section" aria-labelledby="editorTabApp">
+            <div class="card">
+              <div class="card-title">App details</div>
+              <div class="grid grid-2">
+                <label class="field">
+                  <span>App ID</span>
+                  <div class="row">
+                    <input id="edAppId" type="text" placeholder="e.g. target-tracker" />
+                    <button id="btnAutoId" class="ghost">Auto</button>
+                    <div id="pillId" class="pill pill-dim">-</div>
+                  </div>
+                </label>
+                <label class="field"><span>Name</span><input id="edAppName" type="text" placeholder="Display name (defaults to ID)" /></label>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-stable" class="editor-section" aria-labelledby="editorTabStable">
+            <div class="card">
+              <div class="card-title">Stable Track</div>
+              <div class="grid grid-3">
+                <label class="field"><span>Version</span>
+                  <div class="row">
+                    <input id="stVersion" type="text" placeholder="e.g. 2.6.2" />
+                    <select id="stBumpKind"><option>patch</option><option>minor</option><option>major</option></select>
+                    <button id="stBumpBtn" class="ghost">Suggest</button>
+                    <div id="pillStVer" class="pill pill-dim">-</div>
+                  </div>
+                </label>
+                <label class="field"><span>Code</span><input id="stCode" type="number" min="0" step="1" value="0" /></label>
+                <label class="field"><span>Date</span><input id="stDate" type="date" /></label>
+              </div>
+              <div class="grid grid-2">
+                <label class="field"><span>URL</span><input id="stUrl" type="url" placeholder="https://release.example" /></label>
+                <label class="field"><span>Download</span><input id="stDownload" type="url" placeholder="https://asset.example" /></label>
+              </div>
+              <label class="field"><span>Notes</span><textarea id="stNotes" rows="4" placeholder="Short notes"></textarea></label>
+              <div class="row gap">
+                <button id="stCodePlus" class="ghost">Bump code +1</button>
+                <button id="stCodeSuggest" class="ghost">Suggest code from history</button>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-beta" class="editor-section" aria-labelledby="editorTabBeta">
+            <div class="card">
+              <div class="card-title">Beta Track <label class="switch"><input id="betaEnabled" type="checkbox" checked><span></span></label></div>
+              <div id="betaBlock">
+                <div class="grid grid-3">
+                  <label class="field"><span>Version</span>
+                    <div class="row">
+                      <input id="btVersion" type="text" placeholder="optional" />
+                      <select id="btBumpKind"><option>patch</option><option>minor</option><option>major</option></select>
+                      <button id="btBumpBtn" class="ghost">Suggest</button>
+                      <div id="pillBtVer" class="pill pill-dim">-</div>
+                    </div>
+                  </label>
+                  <label class="field"><span>Code</span><input id="btCode" type="number" min="0" step="1" value="0" /></label>
+                  <label class="field"><span>Date</span><input id="btDate" type="date" /></label>
+                </div>
+                <div class="grid grid-2">
+                  <label class="field"><span>URL</span><input id="btUrl" type="url" placeholder="https://beta.example" /></label>
+                  <label class="field"><span>Download</span><input id="btDownload" type="url" placeholder="https://download.example" /></label>
+                </div>
+                <label class="field"><span>Notes</span><textarea id="btNotes" rows="4" placeholder="Optional notes"></textarea></label>
+                <div class="row gap">
+                  <button id="btCodePlus" class="ghost">Bump code +1</button>
+                  <button id="btCodeSuggest" class="ghost">Suggest code from history</button>
+                </div>
+              </div>
+              <div class="row gap">
+                <button id="btnPromote" class="ghost">Promote Beta -> Stable</button>
+                <button id="btnClone" class="ghost">Clone Stable -> Beta</button>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-history" class="editor-section" aria-labelledby="editorTabHistory">
+            <div class="card">
+              <div class="card-title">History</div>
+              <div class="table-wrap">
+                <table id="historyTable" aria-label="History table">
+                  <thead><tr><th>Version</th><th>Code</th><th>Date</th><th>URL</th><th></th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+              <div class="row gap">
+                <button id="btnHistAdd" class="ghost"><img src="assets/ic-wand.svg" alt=""/>Add entry</button>
+                <button id="btnHistRemove" class="ghost danger"><img src="assets/ic-beta.svg" alt=""/>Remove selected</button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div id="editorActions" class="editor-actions">
+          <button id="btnApply" class="ok"><img src="assets/ic-stable.svg" alt=""/>Apply changes</button>
+          <button id="btnReset"><img src="assets/ic-refresh.svg" alt=""/>Reset form</button>
+        </div>
+      </div>
+
+      <!-- Wizard Tab -->
+      <div id="tab-wizard" class="tabpage">
+        <div class="notice notice-success" data-icon="W">
+          <strong>Quick start wizard</strong>
+          <p>Follow the guided steps to scaffold a new application. Required fields are checked before you can finish, and the preview refreshes on every step.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">Wizard</div>
+          <p class="card-subtitle">Identity fields feed into release tracks, and the final review lets you copy or tweak the generated manifest before applying it.</p>
+          <div class="wizard">
+            <ol class="steps">
+              <li class="step active" data-step="1"><span class="bubble">1</span> Identity</li>
+              <li class="step" data-step="2"><span class="bubble">2</span> Tracks</li>
+              <li class="step" data-step="3"><span class="bubble">3</span> Review</li>
+            </ol>
+            <div id="wizardStatus" class="notice notice-muted" data-icon="W" hidden></div>
+            <div class="wiz-body">
+              <div class="wiz-page" data-page="1">
+                <div class="grid grid-2">
+                  <label class="field"><span>App Name</span><input id="wzName" type="text"></label>
+                  <label class="field"><span>App ID</span><div class="row"><input id="wzId" type="text"><button id="wzAuto" class="ghost">Auto</button></div></label>
+                </div>
+              </div>
+              <div class="wiz-page" data-page="2" hidden>
+                <div class="grid grid-3">
+                  <label class="field"><span>Stable version</span><input id="wzStVer" type="text" placeholder="1.2.3"></label>
+                  <label class="field"><span>Stable code</span><input id="wzStCode" type="number" min="0" step="1" value="0"></label>
+                  <label class="field"><span>Stable date</span><input id="wzStDate" type="date"></label>
+                </div>
+                <div class="grid grid-2">
+                  <label class="field"><span>Stable URL</span><input id="wzStUrl" type="url"></label>
+                  <label class="field"><span>Stable download</span><input id="wzStDl" type="url"></label>
+                </div>
+              </div>
+              <div class="wiz-page" data-page="3" hidden>
+                  <div class="row gap">
+                    <button id="wzLoadCurrent" class="ghost">Load From Selection</button>
+                    <button id="wzReset" class="ghost">Reset Wizard</button>
+                  </div>
+                <textarea id="wzPreview" rows="18" class="codeblock" readonly></textarea>
+              </div>
+            </div>
+            <div class="wiz-footer row end gap">
+              <button id="wzBack" disabled>← Back</button>
+              <button id="wzNext">Next →</button>
+              <button id="wzFinish" class="ok" hidden>Finish & Apply</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preview Tab -->
+      <div id="tab-preview" class="tabpage">
+        <div class="notice notice-warn" data-icon="P">
+          <strong>Manifest preview</strong>
+          <p>Generate JSON on demand, copy or download it for review, and validate URLs before pushing upstream.</p>
+        </div>
+        <div class="card">
+          <div class="card-title">Preview</div>
+          <p class="card-subtitle">The preview reflects unsaved edits from the editor tab. Use these actions to export or validate the manifest snapshot.</p>
+          <div class="row gap">
+            <button id="btnCopyJson">Copy JSON</button>
+            <button id="btnSaveJson">Save JSON...</button>
+            <button id="btnValidate">Validate URLs</button>
+          </div>
+          <textarea id="previewBox" class="codeblock" rows="24" placeholder="JSON preview will appear here..." readonly></textarea>
+        </div>
+      </div>
+
+      <!-- Settings Tab -->
+      <div id="tab-settings" class="tabpage">
+        <div class="notice notice-muted" data-icon="S">
+          <strong>Workspace settings</strong>
+          <p>Configure repository access, token storage, and appearance preferences to match your manifest workflow.</p>
+        </div>
+        <div class="card settings-card">
+          <div class="card-title">GitHub Workspace</div>
+          <p class="card-subtitle">Configure the repository and personal access token used when fetching or committing your <code>repoversion.json</code>.</p>
+          <div class="settings-grid">
+            <label class="field"><span>Owner</span><input id="cfgOwner" type="text" value="skillerious"></label>
+            <label class="field"><span>Repo</span><input id="cfgRepo" type="text" value="Version-Tracker"></label>
+            <label class="field"><span>Branch</span><input id="cfgBranch" type="text" value="main"></label>
+            <label class="field"><span>Path</span><input id="cfgPath" type="text" value="repoversion.json"></label>
+          </div>
+            <div class="notice notice-info" data-icon="i">
+              <strong>Token requirements</strong>
+              <p>Tokens should include <strong>Contents: read/write</strong>. After updating credentials, use <em>Verify Token</em> to confirm scopes and any SSO prompts.</p>
+            </div>
+          <div class="settings-actions">
+            <button id="btnCfgApply" class="ok">Apply Repo Settings</button>
+            <div class="settings-actions-right">
+              <button id="btnTokenSettings">Set Token...</button>
+              <button id="btnTokenVerify" class="ghost">Verify Token</button>
+              <button id="btnOpenRepo" class="ghost">Open Repo on GitHub</button>
+            </div>
+          </div>
+        </div>
+        <div class="card settings-card">
+          <div class="card-title">Workspace Appearance</div>
+          <p class="card-subtitle">Adjust layout density to better fit large catalogs or compact displays.</p>
+          <div class="settings-grid settings-grid-compact">
+            <div class="settings-tile">
+              <h4>Density</h4>
+              <p class="muted">Switch between roomy and space-efficient layouts without leaving your flow.</p>
+              <button id="btnCompact">Toggle Compact Density</button>
+            </div>
+            <div class="settings-tile">
+              <h4>Tips</h4>
+              <p class="muted">Breadcrumbs, toolbar buttons, and status messages highlight helpful shortcuts as you work.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Status bar -->
+  <footer id="statusbar" role="status">
+    <div class="sb-left">
+      <span id="dirtyDot" class="dot"></span>
+      <span id="sbText">Ready.</span>
+    </div>
+    <div class="sb-right">
+      <span id="sbHelp" class="muted">F5: Fetch • Ctrl+S: Commit</span>
+    </div>
+  </footer>
+
+  <!-- Token dialog -->
+  <dialog id="tokenDialog" class="dialog-card token-card">
+    <div class="token-header">
+      <div class="token-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+          <path d="M12 2a4.5 4.5 0 0 0-4.5 4.5V9H6.5A2.5 2.5 0 0 0 4 11.5v7A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5v-7A2.5 2.5 0 0 0 17.5 9H16.5V6.5A4.5 4.5 0 0 0 12 2Zm0 2a2.5 2.5 0 0 1 2.5 2.5V9h-5V6.5A2.5 2.5 0 0 1 12 4Zm0 7a1.75 1.75 0 0 1 .75 3.33V17a.75.75 0 0 1-1.5 0v-2.67A1.75 1.75 0 0 1 12 11Z"></path>
+        </svg>
+      </div>
+      <div class="token-title">
+        <h3>GitHub Token</h3>
+        <p class="token-subtitle">Paste a fine-grained personal access token with <strong>Contents: read/write</strong> so Version Tracker can commit on your behalf.</p>
+      </div>
+    </div>
+    <div class="token-body">
+      <ul class="token-points">
+        <li><span class="point-index" aria-hidden="true">1</span>Generate a token via <strong>GitHub &gt; Settings &gt; Developer settings</strong>.</li>
+        <li><span class="point-index" aria-hidden="true">2</span>Allow access to this repository or its organization with repository contents scope.</li>
+        <li><span class="point-index" aria-hidden="true">3</span>Paste and store it securely below.</li>
+      </ul>
+      <div class="field token-field">
+        <label for="tokenInput">Personal access token</label>
+        <div class="token-input">
+          <input id="tokenInput" type="password" placeholder="ghp_xxxxx..." autocomplete="off" spellcheck="false" />
+          <button type="button" id="tokenReveal" class="token-toggle" aria-label="Show token" aria-pressed="false">
+            <span class="toggle-show">Show</span>
+            <span class="toggle-hide">Hide</span>
+          </button>
+        </div>
+      </div>
+      <div class="token-hint">
+        <span class="hint-badge">Secure storage</span>
+        <p>Tokens stay encrypted and never leave this device. Regenerate a new token immediately if it ever leaks.</p>
+      </div>
+      <a id="tokenDocsLink" class="token-docs" href="https://github.com/settings/tokens" target="_blank" rel="noopener">Open GitHub token settings</a>
+    </div>
+    <div class="token-actions">
+      <button id="tokenCancel" class="ghost" type="button">Cancel</button>
+      <div class="token-actions-right">
+        <button id="tokenVerifyButton" class="ghost subtle" type="button">Verify stored token</button>
+        <button id="tokenSave" class="ok" type="button">Save token</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Token verification dialog -->
+  <dialog id="tokenVerifyDialog" class="dialog-card token-verify-card" aria-labelledby="tokenVerifyTitle">
+    <div class="verify-header">
+      <div class="verify-icon" id="tokenVerifyIcon" aria-hidden="true"></div>
+      <div class="verify-header-text">
+        <h3 id="tokenVerifyTitle">Verify Stored Token</h3>
+        <p id="tokenVerifyStatus" class="verify-status">Ready to check your GitHub credentials.</p>
+      </div>
+    </div>
+    <div class="verify-body">
+      <div id="tokenVerifyLoading" class="verify-loading">
+        <div class="verify-spinner" aria-hidden="true"></div>
+        <p>Contacting GitHub&hellip;</p>
+      </div>
+      <div id="tokenVerifyMessage" class="verify-message" hidden></div>
+      <ul id="tokenVerifyDetails" class="verify-details" hidden></ul>
+    </div>
+    <div class="token-actions">
+      <button id="tokenVerifyClose" class="ghost" type="button">Close</button>
+      <div class="token-actions-right">
+        <button id="tokenVerifyOpenGh" class="ghost subtle" type="button">Manage tokens on GitHub</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Onboarding dialog -->
+  <dialog id="onboardingDialog" class="onboarding-card" aria-labelledby="onboardingTitle">
+    <header class="onboarding-header">
+      <div class="onboarding-heading">
+        <div class="onboarding-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+            <path d="M12 3a9 9 0 1 0 9 9 9 9 0 0 0-9-9Zm0 2a7 7 0 1 1-7 7 7 7 0 0 1 7-7Zm0 2.75a1 1 0 0 0-1 1v4a1 1 0 0 0 .55.89l3 1.5a1 1 0 1 0 .9-1.78L13 11.82V8.75a1 1 0 0 0-1-1Z"></path>
+          </svg>
+        </div>
+        <div class="onboarding-title">
+          <h3 id="onboardingTitle">Welcome to Version Tracker</h3>
+          <p class="onboarding-subtitle">Follow these four steps to connect GitHub, verify access, and prepare your local workspace.</p>
+        </div>
+      </div>
+      <div class="onboarding-progress">
+        <span class="pill" id="onboardProgressPill">Step 1 of 4</span>
+        <span id="onboardProgressLabel">Repository target</span>
+      </div>
+    </header>
+    <div class="onboarding-shell onboarding-body">
+      <nav class="onboarding-nav" role="tablist" aria-label="Onboarding steps">
+        <button type="button" role="tab" aria-controls="onboardPanelRepo" aria-selected="true" data-step="repo" data-state="pending" data-index="1" data-title="Repository target" data-helper="Owner / repo / branch" data-current="1">
+          <span class="nav-label"><strong>Repository</strong><span>Owner / repo / branch</span></span>
+          <span class="nav-badge">1</span>
+        </button>
+        <button type="button" role="tab" aria-controls="onboardPanelToken" aria-selected="false" data-step="token" data-state="pending" data-index="2" data-title="Store a token" data-helper="Secure PAT storage" data-current="0">
+          <span class="nav-label"><strong>Token</strong><span>Secure PAT storage</span></span>
+          <span class="nav-badge">2</span>
+        </button>
+        <button type="button" role="tab" aria-controls="onboardPanelVerify" aria-selected="false" data-step="verify" data-state="pending" data-index="3" data-title="Verify access" data-helper="Scopes &amp; account" data-current="0">
+          <span class="nav-label"><strong>Verify</strong><span>Scopes &amp; account</span></span>
+          <span class="nav-badge">3</span>
+        </button>
+        <button type="button" role="tab" aria-controls="onboardPanelData" aria-selected="false" data-step="data" data-state="pending" data-index="4" data-title="Workspace storage" data-helper="AppData setup" data-current="0">
+          <span class="nav-label"><strong>Workspace</strong><span>AppData setup</span></span>
+          <span class="nav-badge">4</span>
+        </button>
+      </nav>
+      <section class="onboarding-panel" id="onboardPanelRepo" role="tabpanel" data-step="repo" aria-labelledby="onboardPanelRepoTitle" tabindex="0" aria-hidden="false">
+        <div class="panel-top">
+          <span class="status-pill" id="onboardRepoStatus">Pending</span>
+          <div class="panel-headline">
+            <h4 id="onboardPanelRepoTitle">Configure repository target</h4>
+            <p class="panel-meta" id="onboardRepoSummary">Set the owner, repository, branch, and manifest path this editor manages.</p>
+          </div>
+        </div>
+        <div class="panel-grid" id="onboardRepoGrid"></div>
+        <div class="panel-callout">
+          <strong>Tip</strong>
+          <p>Version Tracker commits a single manifest file. Update the Settings tab whenever you need to point at a different repository, branch, or JSON path.</p>
+        </div>
+        <div class="panel-actions">
+          <button id="onboardOpenSettings" type="button" class="ghost">Open settings tab</button>
+        </div>
+      </section>
+      <section class="onboarding-panel" id="onboardPanelToken" role="tabpanel" data-step="token" aria-labelledby="onboardPanelTokenTitle" hidden aria-hidden="true" tabindex="-1">
+        <div class="panel-top">
+          <span class="status-pill" id="onboardTokenStatus">Pending</span>
+          <div class="panel-headline">
+            <h4 id="onboardPanelTokenTitle">Store a GitHub token</h4>
+            <p class="panel-meta" id="onboardTokenSummary">Generate a fine-grained personal access token with Contents: read/write scope.</p>
+          </div>
+        </div>
+        <div class="panel-callout" id="onboardTokenCallout">
+          <strong>Secure storage</strong>
+          <p>Tokens are encrypted locally. Replace the token immediately if it becomes compromised.</p>
+        </div>
+        <div class="panel-grid" id="onboardTokenGrid"></div>
+        <div class="panel-actions">
+          <button id="onboardOpenToken" type="button" class="ghost">Open token dialog</button>
+          <button id="onboardTokenDocs" type="button" class="ghost subtle">GitHub token docs</button>
+        </div>
+      </section>
+      <section class="onboarding-panel" id="onboardPanelVerify" role="tabpanel" data-step="verify" aria-labelledby="onboardPanelVerifyTitle" hidden aria-hidden="true" tabindex="-1">
+        <div class="panel-top">
+          <span class="status-pill" id="onboardVerifyStatus">Pending</span>
+          <div class="panel-headline">
+            <h4 id="onboardPanelVerifyTitle">Verify GitHub access</h4>
+            <p class="panel-meta" id="onboardVerifySummary">Check that GitHub recognizes your token and required repository scopes.</p>
+          </div>
+        </div>
+        <div class="panel-callout" id="onboardVerifyCallout">
+          <strong>Latest check</strong>
+          <p>Run verification to confirm account identity, token scopes, and endpoint compatibility.</p>
+        </div>
+        <div class="panel-grid" id="onboardVerifyDetails"></div>
+        <div class="panel-actions">
+          <button id="onboardVerifyToken" type="button" class="ghost">Run verification</button>
+        </div>
+      </section>
+      <section class="onboarding-panel" id="onboardPanelData" role="tabpanel" data-step="data" aria-labelledby="onboardPanelDataTitle" hidden aria-hidden="true" tabindex="-1">
+        <div class="panel-top">
+          <span class="status-pill" id="onboardDataStatus">Pending</span>
+          <div class="panel-headline">
+            <h4 id="onboardPanelDataTitle">Prepare workspace storage</h4>
+            <p class="panel-meta" id="onboardDataSummary">Create the AppData folder and baseline files that keep settings and token metadata safe.</p>
+          </div>
+        </div>
+        <div class="panel-callout" id="onboardDataCallout">
+          <strong>Workspace folder</strong>
+          <p>We keep settings alongside token metadata under your AppData directory so Version Tracker can resume exactly where you left off.</p>
+        </div>
+        <div class="panel-grid" id="onboardDataPaths"></div>
+        <div class="panel-actions">
+          <button id="onboardEnsureData" type="button" class="ghost">Create workspace folder</button>
+          <button id="onboardOpenDataDir" type="button" class="ghost subtle">Open workspace folder</button>
+        </div>
+      </section>
+    </div>
+  <footer class="onboarding-footer">
+      <div class="onboarding-footer-left">
+        <div id="onboardFooterHint">Complete each step to finish setup.</div>
+        <label class="onboarding-footer-skip">
+          <input id="onboardSkipStartup" type="checkbox" />
+          <span>Do not show on startup</span>
+        </label>
+      </div>
+      <div class="onboarding-footer-right">
+        <button id="onboardRefresh" type="button" class="ghost subtle">Refresh status</button>
+        <button id="onboardClose" type="button" class="ghost">Close</button>
+        <button id="onboardFinish" type="button" class="ok">Start editing</button>
+      </div>
+    </footer>
+  </dialog>
+
+  <!-- About dialog -->
+  <dialog id="aboutDialog" class="dialog-card">
+    <div class="about-layout">
+      <section class="about-pane about-pane-summary">
+        <div class="about-header">
+          <img src="assets/icon.ico" alt="" class="about-icon" />
+          <div>
+            <div class="about-title-row">
+              <h3 id="aboutAppTitle">Version Tracker</h3>
+              <span id="aboutVersionBadge" class="about-badge">v1.0.0</span>
+            </div>
+            <p id="aboutTagline" class="about-tagline">Loading application details...</p>
+          </div>
+        </div>
+        <div class="about-column about-summary-column">
+          <h4>Application</h4>
+          <ul class="about-list">
+            <li>
+              <strong>Edition</strong>
+              <span id="aboutEdition">Desktop (Electron)</span>
+            </li>
+            <li>
+              <strong>Version</strong>
+              <span id="aboutVersionText">1.0.0</span>
+            </li>
+            <li>
+              <strong>Author</strong>
+              <span id="aboutAuthor">Robin Doak</span>
+            </li>
+            <li>
+              <strong>Data directory</strong>
+              <span id="aboutDataDir" class="about-mono">Loading...</span>
+              <button id="aboutOpenData" type="button" class="link-button">Reveal in Explorer</button>
+            </li>
+          </ul>
+        </div>
+      </section>
+      <section class="about-pane about-pane-details">
+        <div class="about-columns">
+          <div class="about-column">
+            <h4>Environment</h4>
+            <ul class="about-list">
+              <li>
+                <strong>Electron</strong>
+                <span id="aboutElectronVersion">n/a</span>
+              </li>
+              <li>
+                <strong>Chromium</strong>
+                <span id="aboutChromiumVersion">n/a</span>
+              </li>
+              <li>
+                <strong>Node.js</strong>
+                <span id="aboutNodeVersion">n/a</span>
+              </li>
+              <li>
+                <strong>V8</strong>
+                <span id="aboutV8Version">n/a</span>
+              </li>
+              <li>
+                <strong>Platform</strong>
+                <span id="aboutPlatform">n/a</span>
+              </li>
+            </ul>
+          </div>
+          <div class="about-column">
+            <h4>Resources</h4>
+            <ul class="about-list">
+              <li>
+                <strong>Repository</strong>
+                <a id="aboutRepoLink" href="#" class="about-anchor">Open on GitHub</a>
+              </li>
+              <li>
+                <strong>Issues</strong>
+                <a id="aboutIssuesLink" href="#" class="about-anchor">Report a problem</a>
+              </li>
+              <li>
+                <strong>Releases</strong>
+                <a id="aboutReleasesLink" href="#" class="about-anchor">Latest updates</a>
+              </li>
+              <li>
+                <strong>Homepage</strong>
+                <a id="aboutHomepageLink" href="#" class="about-anchor">Open website</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </section>
+    </div>
+    <div class="dialog-footer">
+      <span id="aboutCopyStatus" class="about-copy-status" role="status" aria-live="polite"></span>
+      <div class="dialog-footer-actions">
+        <button id="aboutCopyDetails" type="button" class="ghost">Copy details</button>
+        <button id="aboutClose" type="button" class="ok">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="renderer.js" defer></script>
+</body>
+</html>
+
+
+
+
+
