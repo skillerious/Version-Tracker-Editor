@@ -66,6 +66,7 @@
       <button data-tab="tab-editor" title="Editor"><img src="assets/ic-identity.svg" alt="Editor"></button>
       <button data-tab="tab-wizard" title="Wizard"><img src="assets/ic-wand.svg" alt="Wizard"></button>
       <button data-tab="tab-preview" title="Preview"><img src="assets/ic-files.svg" alt="Preview"></button>
+      <button data-tab="tab-calendar" title="Calendar"><img src="assets/ic-review.svg" alt="Calendar"></button>
     </div>
     <div class="activity-bottom">
       <button data-tab="tab-settings" title="Settings"><img src="assets/ic-settings.svg" alt="Settings"></button>
@@ -89,7 +90,16 @@
       </div>
 
       <div class="side-footer">
-        <div id="shaBadge" class="side-sha pill pill-dim">SHA &mdash;</div>
+        <button id="shaBadge" class="side-sha" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="shaPopover" aria-label="No manifest SHA yet">
+          <span class="sha-badge-label">SHA</span>
+          <span id="shaBadgeValue" class="sha-badge-value">&mdash;</span>
+          <span class="sha-badge-icon" aria-hidden="true">i</span>
+        </button>
+        <div id="shaPopover" class="sha-popover" role="status" aria-hidden="true" hidden>
+          <div class="sha-popover-title">Current manifest SHA</div>
+          <code id="shaPopoverValue" class="sha-popover-code">&mdash;</code>
+          <p class="sha-popover-hint">Updates after a fetch or commit.</p>
+        </div>
       </div>
       <div id="sidebar-resize-handle" title="Resize"></div>
     </aside>
@@ -287,6 +297,57 @@
             <button id="btnValidate">Validate URLs</button>
           </div>
           <textarea id="previewBox" class="codeblock" rows="24" placeholder="JSON preview will appear here..." readonly></textarea>
+        </div>
+      </div>
+
+      <!-- Calendar Tab -->
+      <div id="tab-calendar" class="tabpage">
+        <div class="card calendar-hero">
+          <div class="card-title">Release Calendar</div>
+          <p class="card-subtitle">Visualise upcoming, recent, and aging releases to spot priorities across every product at a glance.</p>
+          <div class="calendar-summary">
+            <div class="calendar-summary-item summary-upcoming">
+              <span class="summary-label">Upcoming</span>
+              <strong id="calendarUpcomingCount" class="summary-value">0</strong>
+              <span class="summary-hint">Next 14 days</span>
+            </div>
+            <div class="calendar-summary-item summary-recent">
+              <span class="summary-label">Recent</span>
+              <strong id="calendarRecentCount" class="summary-value">0</strong>
+              <span class="summary-hint">Past 14 days</span>
+            </div>
+            <div class="calendar-summary-item summary-stale">
+              <span class="summary-label">Stale</span>
+              <strong id="calendarStaleCount" class="summary-value">0</strong>
+              <span class="summary-hint">Older than 60 days</span>
+            </div>
+          </div>
+          <div class="calendar-controls">
+            <div id="calendarViewToggle" class="calendar-view-toggle" role="group" aria-label="Timeline view">
+              <button type="button" data-view="all" class="active">All</button>
+              <button type="button" data-view="upcoming">Upcoming</button>
+              <button type="button" data-view="stale">Stale</button>
+            </div>
+            <div class="calendar-filter-group" role="group" aria-label="Release types">
+              <label class="calendar-filter"><input id="calendarFilterStable" type="checkbox" data-filter="stable" checked>Stable</label>
+              <label class="calendar-filter"><input id="calendarFilterBeta" type="checkbox" data-filter="beta" checked>Beta</label>
+              <label class="calendar-filter"><input id="calendarFilterHistory" type="checkbox" data-filter="history">History</label>
+            </div>
+          </div>
+        </div>
+        <div class="calendar-section-header">
+          <h3>Timeline</h3>
+          <p>Entries combine live track data with release history; filter to focus on the work that matters most.</p>
+        </div>
+        <div class="card calendar-timeline-card">
+          <div class="calendar-legend">
+            <span class="legend-item legend-upcoming">Upcoming</span>
+            <span class="legend-item legend-recent">Recent</span>
+            <span class="legend-item legend-stale">Stale</span>
+            <span class="legend-item legend-undated">Undated</span>
+          </div>
+          <div id="calendarTimeline" class="calendar-timeline" role="list"></div>
+          <div id="calendarEmpty" class="calendar-empty muted" role="status" hidden>No releases match your filters. Adjust the view or add track dates to populate the calendar.</div>
         </div>
       </div>
 
@@ -500,7 +561,7 @@
         </div>
         <div class="panel-callout" id="onboardVerifyCallout">
           <strong>Latest check</strong>
-          <p>Run verification to confirm account identity, token scopes, and endpoint compatibility.</p>
+          <p>Status updates will appear here after you run verification.</p>
         </div>
         <div class="panel-grid" id="onboardVerifyDetails"></div>
         <div class="panel-actions">
@@ -642,8 +703,3 @@
   <script src="renderer.js" defer></script>
 </body>
 </html>
-
-
-
-
-

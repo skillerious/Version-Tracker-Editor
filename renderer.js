@@ -28,8 +28,13 @@ const state = {
   formDirty: false,
   tab: "tab-editor",
   editorSection: "section-dataset",
-  wizardPage: 1
+  wizardPage: 1,
+  calendar: {
+    filters: { stable: true, beta: true, history: false },
+    view: "all"
+  }
 };
+let shaPopoverOpen = false;
 const wizardState = {
   idTouched: false,
   lastValues: null,
@@ -92,6 +97,69 @@ function setStatus(msg, ms=3000){
     setStatus._tag = tag;
     setTimeout(() => { if (setStatus._tag === tag) $("#sbText").textContent = "Ready."; }, ms);
   }
+}
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const CALENDAR_DAY_MS = 24 * 60 * 60 * 1000;
+const CALENDAR_RECENT_WINDOW = 14;
+const CALENDAR_STALE_WINDOW = 60;
+const CALENDAR_STATUS_TEXT = {
+  "upcoming": "Future",
+  "upcoming-soon": "Upcoming",
+  recent: "Recent",
+  stale: "Stale",
+  past: "Past",
+  undated: "Undated"
+};
+function parseIsoDateStrict(value){
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [y, m, d] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+function startOfTodayUtc(){
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+function diffInDays(date, base){
+  if (!date || !base) return NaN;
+  return Math.round((date.getTime() - base.getTime()) / CALENDAR_DAY_MS);
+}
+function describeRelativeDays(diff){
+  if (!Number.isFinite(diff)) return "No date";
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  if (diff > 1) return `In ${diff} days`;
+  if (diff === -1) return "Yesterday";
+  const abs = Math.abs(diff);
+  if (abs < 30) return `${abs} days ago`;
+  const weeks = Math.round(abs / 7);
+  if (abs < 60) return `${weeks} wk${weeks === 1 ? "" : "s"} ago`;
+  const months = Math.round(abs / 30);
+  return `${months} mo${months === 1 ? "" : "s"} ago`;
+}
+function classifyCalendarStatus(diff){
+  if (!Number.isFinite(diff)) return "undated";
+  if (diff > CALENDAR_RECENT_WINDOW) return "upcoming";
+  if (diff >= 0) return "upcoming-soon";
+  const abs = Math.abs(diff);
+  if (abs <= CALENDAR_RECENT_WINDOW) return "recent";
+  if (abs >= CALENDAR_STALE_WINDOW) return "stale";
+  return "past";
+}
+function formatCalendarDateParts(date){
+  if (!date) return { day: "--", month: "Date TBC", weekday: "" };
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  const month = MONTH_NAMES[date.getUTCMonth()];
+  const year = date.getUTCFullYear();
+  const weekday = WEEKDAY_NAMES[date.getUTCDay()];
+  return { day, month: `${month} ${year}`, weekday };
+}
+function shortenNotes(text, max = 220){
+  const trimmed = (text || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max - 3).trimEnd()}...`;
 }
 const toastState = { nextId: 0 };
 const TOKEN_VERIFY_ICONS = {
@@ -284,6 +352,40 @@ function updateSelectedAppPill(){
     pillEl.title = app.id || "";
     pillEl.dataset.appId = app.id || "";
   }
+}
+function refreshShaBadge(){
+  const badge = $("#shaBadge");
+  const valueEl = $("#shaBadgeValue");
+  const popover = $("#shaPopover");
+  const popValue = $("#shaPopoverValue");
+  const hasSha = typeof state.sha === "string" && state.sha.length > 0;
+  if (!hasSha && shaPopoverOpen) shaPopoverOpen = false;
+
+  if (badge) {
+    badge.disabled = !hasSha;
+    badge.classList.toggle("is-empty", !hasSha);
+    badge.setAttribute("aria-expanded", hasSha && shaPopoverOpen ? "true" : "false");
+    badge.setAttribute("aria-label", hasSha ? `Manifest SHA ${state.sha}` : "No manifest SHA yet");
+    badge.setAttribute("title", hasSha ? `Manifest SHA ${state.sha}` : "No manifest SHA yet");
+  }
+  if (valueEl) valueEl.textContent = hasSha ? state.sha.slice(0, 8) : "--";
+  if (popValue) popValue.textContent = hasSha ? state.sha : "No commit SHA available yet.";
+  if (popover) {
+    const show = hasSha && shaPopoverOpen;
+    popover.hidden = !show;
+    popover.dataset.visible = show ? "1" : "0";
+    popover.setAttribute("aria-hidden", show ? "false" : "true");
+  }
+}
+function toggleShaPopover(){
+  if (!state.sha) return;
+  shaPopoverOpen = !shaPopoverOpen;
+  refreshShaBadge();
+}
+function closeShaPopover(){
+  if (!shaPopoverOpen) return;
+  shaPopoverOpen = false;
+  refreshShaBadge();
 }
 function revealActiveApp(){
   const list = $("#appsList");
@@ -717,12 +819,294 @@ function renderApps(options = {}){
 
   ul.replaceChildren(fragment);
 
-  $("#shaBadge").textContent = state.sha ? `SHA ${state.sha.slice(0,8)}` : "SHA —";
+  refreshShaBadge();
   updateSelectedAppPill();
 
   if (!options.skipReveal && state.currentIndex != null) {
     requestAnimationFrame(() => revealActiveApp());
   }
+
+  renderReleaseCalendar();
+}
+
+// -------- Release calendar view
+function hasTrackData(track){
+  if (!track) return false;
+  const hasVersion = typeof track.version === "string" ? track.version.trim().length > 0 : Boolean(track.version);
+  const hasDate = typeof track.date === "string" ? track.date.trim().length > 0 : false;
+  const hasNotes = typeof track.notes === "string" ? track.notes.trim().length > 0 : false;
+  const hasUrl = typeof track.url === "string" ? track.url.trim().length > 0 : false;
+  const hasDownload = typeof track.download === "string" ? track.download.trim().length > 0 : false;
+  const hasCode = track.code !== undefined && track.code !== null && !(typeof track.code === "number" && Number.isNaN(track.code));
+  return hasVersion || hasDate || hasNotes || hasUrl || hasDownload || hasCode;
+}
+function hasHistoryData(entry){
+  if (!entry) return false;
+  const hasVersion = typeof entry.version === "string" ? entry.version.trim().length > 0 : Boolean(entry.version);
+  const hasDate = typeof entry.date === "string" ? entry.date.trim().length > 0 : false;
+  const hasUrl = typeof entry.url === "string" ? entry.url.trim().length > 0 : false;
+  const hasCode = entry.code !== undefined && entry.code !== null && !(typeof entry.code === "number" && Number.isNaN(entry.code));
+  return hasVersion || hasDate || hasUrl || hasCode;
+}
+function buildCalendarEntry({ appId, appName, type, label, source, today, index }){
+  if (!source) return null;
+  const rawDate = typeof source.date === "string" ? source.date.trim() : "";
+  const date = parseIsoDateStrict(rawDate);
+  const diff = date ? diffInDays(date, today) : NaN;
+  const status = classifyCalendarStatus(diff);
+  const parts = formatCalendarDateParts(date);
+  const relative = describeRelativeDays(diff);
+  const versionRaw = typeof source.version === "string" ? source.version.trim() : source.version || "";
+  const version = versionRaw || "";
+  const codeRaw = source.code;
+  let code = null;
+  if (codeRaw !== undefined && codeRaw !== null && codeRaw !== "") {
+    const parsed = Number.parseInt(codeRaw, 10);
+    if (Number.isFinite(parsed)) code = parsed;
+  }
+  const notesFullRaw = typeof source.notes === "string" ? source.notes : "";
+  const notesFull = notesFullRaw.trim();
+  const notes = shortenNotes(notesFull);
+  const url = typeof source.url === "string" ? source.url.trim() : "";
+  const download = typeof source.download === "string" ? source.download.trim() : "";
+  const links = [];
+  if (url) links.push({ href: url, label: type === "history" ? "History link" : "Release page" });
+  if (download && download !== url) links.push({ href: download, label: "Download" });
+  const keyParts = [appId || "app", type];
+  if (version) keyParts.push(`v:${version}`);
+  if (rawDate) keyParts.push(`d:${rawDate}`);
+  if (code !== null) keyParts.push(`c:${code}`);
+  if (index != null) keyParts.push(`i:${index}`);
+  const key = keyParts.join("|");
+  return {
+    key,
+    appId,
+    appName,
+    type,
+    trackLabel: label,
+    version,
+    code,
+    notes,
+    notesFull,
+    date,
+    rawDate,
+    status,
+    statusLabel: CALENDAR_STATUS_TEXT[status] || "Scheduled",
+    diff,
+    relative,
+    day: parts.day,
+    month: parts.month,
+    weekday: parts.weekday,
+    links
+  };
+}
+function collectCalendarEntries(){
+  const today = startOfTodayUtc();
+  const apps = state.data.apps || [];
+  const entries = [];
+  apps.forEach((app) => {
+    const appId = app.id || "";
+    const appName = app.name || app.id || "Untitled app";
+    const tracks = app.tracks || {};
+    if (hasTrackData(tracks.stable)) {
+      const entry = buildCalendarEntry({ appId, appName, type: "stable", label: "Stable", source: tracks.stable, today });
+      if (entry) entries.push(entry);
+    }
+    if (hasTrackData(tracks.beta)) {
+      const entry = buildCalendarEntry({ appId, appName, type: "beta", label: "Beta", source: tracks.beta, today });
+      if (entry) entries.push(entry);
+    }
+    if (Array.isArray(app.history)) {
+      app.history.forEach((hist, idx) => {
+        if (!hasHistoryData(hist)) return;
+        const entry = buildCalendarEntry({ appId, appName, type: "history", label: "History", source: hist, today, index: idx });
+        if (entry) entries.push(entry);
+      });
+    }
+  });
+  return entries;
+}
+function sortCalendarEntries(list){
+  const upcoming = [];
+  const undated = [];
+  const past = [];
+  list.forEach((entry) => {
+    if (!entry.date) {
+      undated.push(entry);
+    } else if (entry.diff >= 0) {
+      upcoming.push(entry);
+    } else {
+      past.push(entry);
+    }
+  });
+  const localeOptions = { numeric: true, sensitivity: "base" };
+  const byName = (a, b) => (a.appName || "").localeCompare(b.appName || "", undefined, localeOptions);
+  upcoming.sort((a, b) => (a.date - b.date) || byName(a, b));
+  undated.sort(byName);
+  past.sort((a, b) => (b.date - a.date) || byName(a, b));
+  return upcoming.concat(undated, past);
+}
+function bindCalendarLink(anchor, href){
+  if (!anchor || !href) return;
+  const open = () => vt.shell.open(href);
+  anchor.addEventListener("click", (event) => { event.preventDefault(); open(); });
+  anchor.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      open();
+    }
+  });
+}
+function renderCalendarEntry(entry){
+  const item = document.createElement("article");
+  item.className = `calendar-entry status-${entry.status} track-${entry.type}`;
+  item.setAttribute("role", "listitem");
+  item.dataset.key = entry.key;
+
+  const dateCol = document.createElement("div");
+  dateCol.className = "calendar-entry-date";
+  const dayEl = document.createElement("span");
+  dayEl.className = "calendar-entry-day";
+  dayEl.textContent = entry.day;
+  dateCol.append(dayEl);
+  const monthEl = document.createElement("span");
+  monthEl.className = "calendar-entry-month";
+  monthEl.textContent = entry.month;
+  dateCol.append(monthEl);
+  if (entry.weekday) {
+    const weekdayEl = document.createElement("span");
+    weekdayEl.className = "calendar-entry-weekday";
+    weekdayEl.textContent = entry.weekday;
+    dateCol.append(weekdayEl);
+  }
+  const relEl = document.createElement("span");
+  relEl.className = "calendar-entry-relative";
+  relEl.textContent = entry.relative;
+  dateCol.append(relEl);
+  item.append(dateCol);
+
+  const body = document.createElement("div");
+  body.className = "calendar-entry-body";
+
+  const header = document.createElement("div");
+  header.className = "calendar-entry-header";
+
+  const title = document.createElement("div");
+  title.className = "calendar-entry-title";
+  const appEl = document.createElement("span");
+  appEl.className = "calendar-entry-app";
+  appEl.textContent = entry.appName;
+  title.append(appEl);
+  const trackEl = document.createElement("span");
+  trackEl.className = "calendar-entry-track";
+  trackEl.textContent = entry.trackLabel;
+  title.append(trackEl);
+  header.append(title);
+
+  const versionEl = document.createElement("span");
+  versionEl.className = "calendar-entry-version";
+  versionEl.textContent = entry.version || "Version pending";
+  if (entry.version) versionEl.title = `Version ${entry.version}`;
+  else versionEl.title = "Version not specified yet";
+  header.append(versionEl);
+  body.append(header);
+
+  const meta = document.createElement("div");
+  meta.className = "calendar-entry-meta";
+  const statusEl = document.createElement("span");
+  statusEl.className = `calendar-entry-status-label status-${entry.status}`;
+  statusEl.textContent = entry.statusLabel;
+  statusEl.title = entry.relative;
+  meta.append(statusEl);
+  if (Number.isFinite(entry.code)) {
+    const codeEl = document.createElement("span");
+    codeEl.textContent = `Code ${entry.code}`;
+    meta.append(codeEl);
+  }
+  if (entry.rawDate) {
+    const dateEl = document.createElement("span");
+    dateEl.textContent = entry.rawDate;
+    meta.append(dateEl);
+  }
+  entry.links.forEach((link) => {
+    const linkEl = document.createElement("a");
+    linkEl.href = "#";
+    linkEl.className = "calendar-entry-link";
+    linkEl.dataset.href = link.href;
+    linkEl.textContent = link.label;
+    linkEl.title = link.href;
+    bindCalendarLink(linkEl, link.href);
+    meta.append(linkEl);
+  });
+  body.append(meta);
+
+  if (entry.notes) {
+    const notesEl = document.createElement("p");
+    notesEl.className = "calendar-entry-notes";
+    notesEl.textContent = entry.notes;
+    if (entry.notesFull && entry.notesFull !== entry.notes) notesEl.title = entry.notesFull;
+    body.append(notesEl);
+  }
+
+  item.append(body);
+  return item;
+}
+function renderReleaseCalendar(){
+  const timeline = $("#calendarTimeline");
+  const empty = $("#calendarEmpty");
+  const upcomingCountEl = $("#calendarUpcomingCount");
+  const recentCountEl = $("#calendarRecentCount");
+  const staleCountEl = $("#calendarStaleCount");
+  if (!timeline || !empty || !upcomingCountEl || !recentCountEl || !staleCountEl) return;
+
+  const entries = collectCalendarEntries();
+  let upcomingSoonCount = 0;
+  let recentCount = 0;
+  let staleCount = 0;
+  entries.forEach((entry) => {
+    if (entry.status === "upcoming-soon") upcomingSoonCount += 1;
+    if (entry.status === "recent") recentCount += 1;
+    if (entry.status === "stale") staleCount += 1;
+  });
+  upcomingCountEl.textContent = String(upcomingSoonCount);
+  recentCountEl.textContent = String(recentCount);
+  staleCountEl.textContent = String(staleCount);
+
+  const filters = state.calendar?.filters || { stable: true, beta: true, history: false };
+  const view = state.calendar?.view || "all";
+
+  const viewToggle = $("#calendarViewToggle");
+  if (viewToggle) {
+    viewToggle.querySelectorAll("button").forEach((btn) => {
+      btn.classList.toggle("active", (btn.dataset.view || "all") === view);
+    });
+  }
+  [
+    ["calendarFilterStable", "stable"],
+    ["calendarFilterBeta", "beta"],
+    ["calendarFilterHistory", "history"]
+  ].forEach(([id, key]) => {
+    const checkbox = $(`#${id}`);
+    if (checkbox) checkbox.checked = Boolean(filters[key]);
+  });
+
+  const filtered = entries.filter((entry) => {
+    if (!filters[entry.type]) return false;
+    if (view === "upcoming") return entry.status === "upcoming" || entry.status === "upcoming-soon";
+    if (view === "stale") return entry.status === "stale";
+    return true;
+  });
+
+  const sorted = sortCalendarEntries(filtered);
+  timeline.replaceChildren();
+  if (!sorted.length) {
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+  const fragment = document.createDocumentFragment();
+  sorted.forEach((entry) => fragment.append(renderCalendarEntry(entry)));
+  timeline.append(fragment);
 }
 
 function selectApp(idx){
@@ -1131,10 +1515,12 @@ function capitalizeStep(step){
   return step.charAt(0).toUpperCase() + step.slice(1);
 }
 function renderTile(label, value, options = {}){
-  const { rawValue = false, meta = null, rawMeta = false } = options;
+  const { rawValue = false, meta = null, rawMeta = false, className = "" } = options;
   const valueHtml = rawValue ? String(value ?? "") : escapeHtml(value ?? "");
   const metaHtml = meta == null ? "" : `<span class="tile-meta">${rawMeta ? String(meta) : escapeHtml(String(meta))}</span>`;
-  return `<div class="tile"><strong>${escapeHtml(label)}</strong><span>${valueHtml}</span>${metaHtml}</div>`;
+  const classes = ["tile"];
+  if (className) classes.push(className);
+  return `<div class="${classes.join(" ")}"><strong>${escapeHtml(label)}</strong><span>${valueHtml}</span>${metaHtml}</div>`;
 }
 function setOnboardingStepStatus(step, status, label){
   if (!ONBOARDING_STEPS.includes(step)) return;
@@ -1317,7 +1703,7 @@ function applyVerifiedTokenStatus(info){
   onboarding.tokenInfo = info || null;
   const summary = $("#onboardVerifySummary");
   const details = $("#onboardVerifyDetails");
-  const callout = $("#onboardVerifyCallout p:last-child");
+  const callout = $("#onboardVerifyCallout");
   const sourceLabels = {
     keytar: "Secure keychain",
     store: "Local store",
@@ -1326,15 +1712,15 @@ function applyVerifiedTokenStatus(info){
   };
   if (!info || !info.hasToken){
     setOnboardingStepStatus("verify", "pending", ONBOARDING_DEFAULT_LABELS.verify);
-    if (summary) summary.textContent = "Run verification once you have stored a token.";
-    if (callout) callout.textContent = "We'll display account details after the first successful check.";
+    if (summary) summary.textContent = "";
+    if (callout) callout.innerHTML = `<strong>Latest check</strong><p>Run verification once you have stored a token.</p><p class="verify-status-detail">We'll display account details after the first successful check.</p>`;
     if (details) details.innerHTML = renderTile("Status", "Waiting for token");
     return;
   }
   if (info.error){
     setOnboardingStepStatus("verify", "error", "Verification failed");
-    if (summary) summary.textContent = "GitHub reported a problem while checking the stored token.";
-    if (callout) callout.textContent = info.error;
+    if (summary) summary.textContent = "";
+    if (callout) callout.innerHTML = `<strong>Latest check</strong><p>GitHub reported a problem while checking the stored token.</p><p class="verify-status-detail is-error">${escapeHtml(info.error || "Unknown error")}</p>`;
     if (details) {
       const friendlySource = sourceLabels[info.source] || (info.source ? info.source : "Unknown");
       details.innerHTML = [
@@ -1346,8 +1732,10 @@ function applyVerifiedTokenStatus(info){
   }
   setOnboardingStepStatus("verify", "done", "Token verified");
   const name = info.login || info.name || "GitHub";
-  if (summary) summary.textContent = `Token verified for ${name}.`;
-  if (callout) callout.textContent = "Everything looks good. Your token can talk to GitHub with the scopes listed below.";
+  if (summary) summary.textContent = "";
+  if (callout) {
+    callout.innerHTML = `<strong>Latest check</strong><p>Everything looks good. Your token can talk to GitHub with the scopes listed below.</p><p class="verify-status-detail">Token verified for ${escapeHtml(name)}.</p>`;
+  }
   if (details){
     const accountMeta = [];
     if (info.name && info.name !== info.login) accountMeta.push(info.name);
@@ -1359,12 +1747,25 @@ function applyVerifiedTokenStatus(info){
     const acceptedHtml = info.acceptedScopes?.length
       ? info.acceptedScopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join(" ")
       : "<span class=\"tile-meta\">None</span>";
-    details.innerHTML = [
-      renderTile("Account", info.login || info.name || "Unknown", { meta: accountMeta.length ? accountMeta.join(" / ") : null }),
-      renderTile("Stored via", friendlySource, { meta: info.source || "local" }),
-      renderTile("Token scopes", scopesHtml, { rawValue: true }),
-      renderTile("Endpoint expects", acceptedHtml, { rawValue: true })
+    const metaTiles = [
+      renderTile("Account", info.login || info.name || "Unknown", {
+        meta: accountMeta.length ? accountMeta.join(" / ") : null
+      }),
+      renderTile("Stored via", friendlySource, {
+        meta: info.source || "local"
+      }),
+      renderTile("Endpoint expects", acceptedHtml, {
+        rawValue: true
+      })
     ].join("");
+    const scopesTile = renderTile("Token scopes", scopesHtml, {
+      rawValue: true,
+      className: "tile-scopes"
+    });
+    details.innerHTML = `
+      <div class="verify-column verify-column-meta">${metaTiles}</div>
+      <div class="verify-column verify-column-scopes">${scopesTile}</div>
+    `;
   }
 }
 function applyDataStatusToOnboarding(status){
@@ -1439,9 +1840,9 @@ async function refreshOnboardingStatus(options = {}){
         const details = $("#onboardVerifyDetails");
         if (details) details.innerHTML = renderTile("Error", err?.message || String(err));
         const summary = $("#onboardVerifySummary");
-        if (summary) summary.textContent = "Token verification failed.";
-        const callout = $("#onboardVerifyCallout p:last-child");
-        if (callout) callout.textContent = err?.message || String(err);
+        if (summary) summary.textContent = "";
+        const callout = $("#onboardVerifyCallout");
+        if (callout) callout.innerHTML = `<strong>Latest check</strong><p>Token verification failed.</p><p class="verify-status-detail is-error">${escapeHtml(err?.message || String(err))}</p>`;
       }
     }
   } else {
@@ -1963,6 +2364,37 @@ function bind(){
   bindSidebarResize();
   updateBreadcrumbsFromState();
 
+  const shaBadge = $("#shaBadge");
+  if (shaBadge) {
+    shaBadge.addEventListener("click", () => {
+      if (shaBadge.disabled) return;
+      toggleShaPopover();
+    });
+    shaBadge.addEventListener("blur", () => {
+      if (!shaPopoverOpen) return;
+      window.setTimeout(() => {
+        if (!shaPopoverOpen) return;
+        closeShaPopover();
+      }, 0);
+    });
+  }
+  document.addEventListener("click", (event) => {
+    if (!shaPopoverOpen) return;
+    const badge = $("#shaBadge");
+    const popover = $("#shaPopover");
+    if (!badge || !popover) return;
+    if (badge.contains(event.target) || popover.contains(event.target)) return;
+    closeShaPopover();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && shaPopoverOpen) {
+      event.preventDefault();
+      closeShaPopover();
+      const badge = $("#shaBadge");
+      if (badge) badge.focus();
+    }
+  });
+
   // Toolbar
   $("#btnFetch").addEventListener("click", fetchFromGitHub);
   $("#btnCommit").addEventListener("click", commitToGitHub);
@@ -1987,6 +2419,35 @@ function bind(){
   $("#btnAddApp").addEventListener("click", addNewApp);
   $("#btnDelApp").addEventListener("click", deleteApp);
   $("#btnDupApp").addEventListener("click", duplicateApp);
+
+  // Calendar filters & view
+  const calendarViewToggle = $("#calendarViewToggle");
+  if (calendarViewToggle) {
+    calendarViewToggle.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const view = btn.dataset.view || "all";
+        if (state.calendar.view === view) return;
+        state.calendar.view = view;
+        calendarViewToggle.querySelectorAll("button").forEach((other) => {
+          other.classList.toggle("active", other === btn);
+        });
+        renderReleaseCalendar();
+      });
+    });
+  }
+  [
+    ["calendarFilterStable", "stable"],
+    ["calendarFilterBeta", "beta"],
+    ["calendarFilterHistory", "history"]
+  ].forEach(([id, key]) => {
+    const checkbox = $(`#${id}`);
+    if (!checkbox) return;
+    checkbox.checked = Boolean(state.calendar.filters[key]);
+    checkbox.addEventListener("change", () => {
+      state.calendar.filters[key] = checkbox.checked;
+      renderReleaseCalendar();
+    });
+  });
 
   // Change → dirty
   $$("#content input, #content textarea, #content select").forEach(el => {
@@ -2096,7 +2557,7 @@ function bind(){
     state.repo.branch = $("#cfgBranch").value.trim() || state.repo.branch;
     state.repo.path = $("#cfgPath").value.trim() || state.repo.path;
     state.sha = null;
-    $("#shaBadge").textContent = "SHA —";
+    refreshShaBadge();
     $("#repoLabel").textContent = `${state.repo.owner}/${state.repo.repo}@${state.repo.branch}`;
     updateBreadcrumbsFromState();
     setStatus("Repo settings applied.", 3000);
@@ -2260,6 +2721,7 @@ function bind(){
 
   $("#repoLabel").textContent = `${state.repo.owner}/${state.repo.repo}@${state.repo.branch}`;
   switchTab(state.tab);
+  refreshShaBadge();
 }
 
 function addNewApp(){
