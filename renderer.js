@@ -1,4 +1,4 @@
-/* global vt */
+﻿/* global vt */
 
 // -------- Guards (helpful if preload fails during setup)
 if (!("vt" in window)) {
@@ -31,7 +31,9 @@ const state = {
   wizardPage: 1,
   calendar: {
     filters: { stable: true, beta: true, history: false },
-    view: "all"
+    view: "all",
+    includeUndated: true,
+    search: ""
   }
 };
 let shaPopoverOpen = false;
@@ -208,7 +210,7 @@ function showToast(message, options = {}){
   close.type = "button";
   close.className = "toast-close";
   close.setAttribute("aria-label", "Dismiss notification");
-  close.textContent = "×";
+  close.textContent = "\u00D7";
   close.addEventListener("click", () => dismissToast(toast));
 
   toast.append(icon, body, close);
@@ -248,7 +250,7 @@ function setButtonBusy(btn, busy){
   if (busy) btn.setAttribute("aria-busy", "true");
   else btn.removeAttribute("aria-busy");
 }
-function pill(el, kind, text){ el.className = `pill ${kind ? `pill-${kind}` : "pill-dim"}`; el.textContent = text ?? "—"; }
+function pill(el, kind, text){ el.className = `pill ${kind ? `pill-${kind}` : "pill-dim"}`; el.textContent = text ?? "--"; }
 function bumpVersion(v, kind){
   const m = (v || "").split("-")[0].match(/\d+/g) || [];
   let [maj, min, pat] = (m.map(n => parseInt(n,10))).concat([0,0,0]).slice(0,3);
@@ -269,14 +271,14 @@ function summarizeStableTrack(app){
   if (stable.version) parts.push(`Stable ${stable.version}`);
   if (stable.code) parts.push(`#${stable.code}`);
   if (stable.date) parts.push(stable.date);
-  return parts.join(" • ") || "";
+  return parts.join(" | ") || "";
 }
 function summarizeBetaTrack(app){
   const beta = app?.tracks?.beta || {};
   if (!beta.version) return "";
   const parts = [`Beta ${beta.version}`];
   if (beta.code) parts.push(`#${beta.code}`);
-  return parts.join(" • ");
+  return parts.join(" | ");
 }
 function buildAppSummary(app){
   const chunks = [];
@@ -285,7 +287,7 @@ function buildAppSummary(app){
   const betaText = summarizeBetaTrack(app);
   if (betaText) chunks.push(betaText);
   if (!chunks.length) return "No release data yet";
-  return chunks.join("   ·   ");
+  return chunks.join("   |   ");
 }
 function onAppListActivate(e){
   const item = e.currentTarget;
@@ -332,7 +334,7 @@ function updateAppListItem(li, app){
   if (metaEl) metaEl.textContent = buildAppSummary(app);
   const idEl = li.querySelector(".app-id");
   if (idEl) idEl.textContent = app.id;
-  li.setAttribute("aria-label", `${app.name || app.id} — ${metaEl?.textContent || ""}`);
+  li.setAttribute("aria-label", `${app.name || app.id} - ${metaEl?.textContent || ""}`);
 }
 function updateSelectedAppPill(){
   const pillEl = $("#selectedAppPill");
@@ -502,7 +504,7 @@ function updateHistoryDiagnostics(){
     const row = entry.row;
     if (!row) return;
     row.classList.toggle("has-warning", issues.length > 0);
-    if (issues.length) row.title = issues.join("\n");
+    if (issues.length) row.title = issues.join(" | ");
     else row.removeAttribute("title");
   });
 }
@@ -540,7 +542,7 @@ function createHistoryRow(entry){
   const btn = document.createElement("button");
   btn.className = "ghost danger small";
   btn.title = "Remove entry";
-  btn.textContent = "×";
+  btn.textContent = "\u00D7";
   btn.addEventListener("click", () => removeHistoryRow(tr));
   btnCell.append(btn);
   tr.append(btnCell);
@@ -628,7 +630,7 @@ function setBreadcrumbs(parts){
   const createDivider = () => {
     const divider = document.createElement("span");
     divider.className = "chev";
-    divider.textContent = "›";
+    divider.textContent = ">";
     divider.setAttribute("aria-hidden", "true");
     return divider;
   };
@@ -639,7 +641,7 @@ function setBreadcrumbs(parts){
 
     const label = escapeHtml(part.label || "");
     const meta = part.meta ? `<span class="crumb-label">${escapeHtml(part.meta)}</span>` : "";
-    const value = `<span class="crumb-value">${label || "—"}</span>`;
+    const value = `<span class="crumb-value">${label || "--"}</span>`;
 
     if (part.href) {
       const link = document.createElement("a");
@@ -687,7 +689,7 @@ function bindBreadcrumbsScroll(){
   const track = $("#bcTrack");
   let dragging = false, sx = 0, sl = 0;
 
-  // Vertical wheel → horizontal scroll (like VS Code)
+  // Vertical wheel -> horizontal scroll (like VS Code)
   const onWheel = (e) => {
     if (!e.shiftKey && Math.abs(e.deltaY) > Math.abs(e.deltaX)) {
       e.preventDefault();
@@ -946,6 +948,15 @@ function sortCalendarEntries(list){
   past.sort((a, b) => (b.date - a.date) || byName(a, b));
   return upcoming.concat(undated, past);
 }
+function renderCalendarDivider(label, options = {}){
+  const { variant = "" } = options;
+  const el = document.createElement("div");
+  el.className = "calendar-timeline-month";
+  if (variant) el.classList.add(`is-${variant}`);
+  el.textContent = label;
+  el.setAttribute("role", "presentation");
+  return el;
+}
 function bindCalendarLink(anchor, href){
   if (!anchor || !href) return;
   const open = () => vt.shell.open(href);
@@ -1054,26 +1065,93 @@ function renderCalendarEntry(entry){
 function renderReleaseCalendar(){
   const timeline = $("#calendarTimeline");
   const empty = $("#calendarEmpty");
+  if (!timeline || !empty) return;
+
+  state.calendar = state.calendar || {};
+  if (!state.calendar.filters) state.calendar.filters = { stable: true, beta: true, history: false };
+  if (typeof state.calendar.view !== "string") state.calendar.view = "all";
+  if (typeof state.calendar.includeUndated !== "boolean") state.calendar.includeUndated = true;
+  if (typeof state.calendar.search !== "string") state.calendar.search = "";
+
   const upcomingCountEl = $("#calendarUpcomingCount");
   const recentCountEl = $("#calendarRecentCount");
   const staleCountEl = $("#calendarStaleCount");
-  if (!timeline || !empty || !upcomingCountEl || !recentCountEl || !staleCountEl) return;
+  const undatedCountEl = $("#calendarUndatedCount");
+  const undatedSummaryEl = $("#calendarUndatedSummary");
+  const undatedSummaryMetaEl = $("#calendarUndatedSummaryMeta");
+  const nextValueEl = $("#calendarNextRelease");
+  const nextMetaEl = $("#calendarNextReleaseMeta");
+  const recentValueEl = $("#calendarRecentRelease");
+  const recentMetaEl = $("#calendarRecentReleaseMeta");
+  const staleValueEl = $("#calendarOldestStale");
+  const staleMetaEl = $("#calendarOldestStaleMeta");
+  const searchInput = $("#calendarSearch");
+  const includeUndatedCheckbox = $("#calendarIncludeUndated");
+
+  if (searchInput && searchInput.value !== (state.calendar.search || "")) {
+    searchInput.value = state.calendar.search || "";
+  }
+  if (includeUndatedCheckbox) includeUndatedCheckbox.checked = state.calendar.includeUndated !== false;
 
   const entries = collectCalendarEntries();
   let upcomingSoonCount = 0;
   let recentCount = 0;
   let staleCount = 0;
+  let undatedCount = 0;
+  let nextUpcoming = null;
+  let latestRecent = null;
+  let oldestStale = null;
   entries.forEach((entry) => {
     if (entry.status === "upcoming-soon") upcomingSoonCount += 1;
     if (entry.status === "recent") recentCount += 1;
     if (entry.status === "stale") staleCount += 1;
-  });
-  upcomingCountEl.textContent = String(upcomingSoonCount);
-  recentCountEl.textContent = String(recentCount);
-  staleCountEl.textContent = String(staleCount);
+    if (entry.status === "undated") undatedCount += 1;
 
-  const filters = state.calendar?.filters || { stable: true, beta: true, history: false };
-  const view = state.calendar?.view || "all";
+    if ((entry.status === "upcoming-soon" || entry.status === "upcoming") && (!nextUpcoming || entry.diff < nextUpcoming.diff)) {
+      nextUpcoming = entry;
+    }
+    if (entry.status === "recent") {
+      if (!latestRecent || entry.diff > latestRecent.diff) latestRecent = entry;
+    } else if (entry.status === "past") {
+      if (!latestRecent || latestRecent.status !== "recent" && entry.diff > latestRecent.diff) latestRecent = entry;
+    }
+    if (entry.status === "stale") {
+      if (!oldestStale || entry.diff < oldestStale.diff) oldestStale = entry;
+    }
+  });
+
+  if (upcomingCountEl) upcomingCountEl.textContent = String(upcomingSoonCount);
+  if (recentCountEl) recentCountEl.textContent = String(recentCount);
+  if (staleCountEl) staleCountEl.textContent = String(staleCount);
+  if (undatedCountEl) undatedCountEl.textContent = String(undatedCount);
+  if (undatedSummaryEl) undatedSummaryEl.textContent = String(undatedCount);
+  if (undatedSummaryMetaEl) {
+    undatedSummaryMetaEl.textContent = undatedCount
+      ? `Set ${undatedCount === 1 ? "this track" : "these tracks"} a target date to stay on schedule.`
+      : "All tracked releases have target dates.";
+  }
+
+  const updateHighlight = (valueEl, metaEl, entry, emptyMeta) => {
+    if (!valueEl || !metaEl) return;
+    if (entry) {
+      valueEl.textContent = entry.appName || "--";
+      const parts = [entry.trackLabel];
+      if (entry.rawDate) parts.push(entry.rawDate);
+      if (entry.relative && entry.relative !== "No date") parts.push(entry.relative);
+      metaEl.textContent = parts.filter(Boolean).join(" | ");
+    } else {
+      valueEl.textContent = "--";
+      metaEl.textContent = emptyMeta;
+    }
+  };
+  updateHighlight(nextValueEl, nextMetaEl, nextUpcoming, "No upcoming releases scheduled.");
+  updateHighlight(recentValueEl, recentMetaEl, latestRecent, "No recent releases recorded.");
+  updateHighlight(staleValueEl, staleMetaEl, oldestStale, "All tracks look healthy.");
+
+  const filters = state.calendar.filters;
+  const view = state.calendar.view || "all";
+  const includeUndated = state.calendar.includeUndated !== false;
+  const searchTerm = (state.calendar.search || "").trim().toLowerCase();
 
   const viewToggle = $("#calendarViewToggle");
   if (viewToggle) {
@@ -1092,8 +1170,25 @@ function renderReleaseCalendar(){
 
   const filtered = entries.filter((entry) => {
     if (!filters[entry.type]) return false;
+    if (!includeUndated && entry.status === "undated") return false;
     if (view === "upcoming") return entry.status === "upcoming" || entry.status === "upcoming-soon";
+    if (view === "recent") return entry.status === "recent";
     if (view === "stale") return entry.status === "stale";
+    if (searchTerm) {
+      const parts = [
+        entry.appName,
+        entry.trackLabel,
+        entry.version,
+        entry.statusLabel,
+        entry.relative,
+        entry.notesFull,
+        entry.rawDate,
+        Number.isFinite(entry.code) ? `code ${entry.code}` : ""
+      ];
+      entry.links.forEach((link) => parts.push(link.label, link.href));
+      const haystack = parts.filter(Boolean).join(" | ").toLowerCase();
+      if (!haystack.includes(searchTerm)) return false;
+    }
     return true;
   });
 
@@ -1105,7 +1200,24 @@ function renderReleaseCalendar(){
   }
   empty.hidden = true;
   const fragment = document.createDocumentFragment();
-  sorted.forEach((entry) => fragment.append(renderCalendarEntry(entry)));
+  let lastMonthKey = "";
+  let lastBucket = "";
+  sorted.forEach((entry) => {
+    const bucket = entry.status === "undated" ? "undated" : entry.diff >= 0 ? "upcoming" : "history";
+    if (bucket !== lastBucket) {
+      lastBucket = bucket;
+      lastMonthKey = "";
+      if (bucket === "undated") fragment.append(renderCalendarDivider("Undated releases", { variant: "undated" }));
+    }
+    if (bucket !== "undated" && entry.date) {
+      const monthKey = `${entry.date.getUTCFullYear()}-${String(entry.date.getUTCMonth() + 1).padStart(2, "0")}`;
+      if (monthKey !== lastMonthKey) {
+        fragment.append(renderCalendarDivider(entry.month, { variant: bucket }));
+        lastMonthKey = monthKey;
+      }
+    }
+    fragment.append(renderCalendarEntry(entry));
+  });
   timeline.append(fragment);
 }
 
@@ -1131,7 +1243,7 @@ function clearForm(){
   $("#betaEnabled").checked = true; $("#betaBlock").style.display = "";
   renderHistoryTable([]);
   historySelectionKey = null;
-  pill($("#pillId"), "dim", "-"); pill($("#pillStVer"), "dim", "-"); pill($("#pillBtVer"), "dim", "-");
+  pill($("#pillId"), "dim", "--"); pill($("#pillStVer"), "dim", "--"); pill($("#pillBtVer"), "dim", "--");
   setFormDirty(false);
   scheduleHistoryDiagnostics();
   updateSelectedAppPill();
@@ -1271,14 +1383,19 @@ function stampGenerated(){
 function buildJSON(){ return JSON.stringify(state.data, null, 2); }
 function updateIdPill(){
   const id = $("#edAppId").value.trim();
-  if (!id) return pill($("#pillId"), "dim", "—");
+  if (!id) return pill($("#pillId"), "dim", "--");
   pill($("#pillId"), RX_SLUG.test(id) ? "ok" : "bad", RX_SLUG.test(id) ? "OK" : "Bad");
 }
 function updateVerPills(){
   const st = $("#stVersion").value.trim();
-  pill($("#pillStVer"), !st ? "dim" : RX_SEMVER.test(st) ? "ok" : "warn", !st ? "—" : RX_SEMVER.test(st) ? "OK" : "Odd");
+  const stStatus = !st ? "dim" : RX_SEMVER.test(st) ? "ok" : "warn";
+  const stLabel = !st ? "--" : RX_SEMVER.test(st) ? "OK" : "Odd";
+  pill($("#pillStVer"), stStatus, stLabel);
+
   const bt = $("#btVersion").value.trim();
-  pill($("#pillBtVer"), !bt ? "dim" : RX_SEMVER.test(bt) ? "ok" : "warn", !bt ? "—" : RX_SEMVER.test(bt) ? "OK" : "Odd");
+  const btStatus = !bt ? "dim" : RX_SEMVER.test(bt) ? "ok" : "warn";
+  const btLabel = !bt ? "--" : RX_SEMVER.test(bt) ? "OK" : "Odd";
+  pill($("#pillBtVer"), btStatus, btLabel);
 }
 
 // -------- Repo ops
@@ -1328,7 +1445,10 @@ async function commitToGitHub(){
     applyFormToApp(state.currentIndex);
   }
   const issues = validate();
-  if (issues.length){ alert("Resolve these issues:\n\n" + issues.map(s=>"• "+s).join("\n")); return; }
+  if (issues.length){
+    alert("Resolve these issues:\n\n" + issues.map((s) => "- " + s).join("\n"));
+    return;
+  }
   commitInFlight = true;
   const btn = $("#btnCommit");
   setButtonBusy(btn, true);
@@ -1378,7 +1498,10 @@ async function openLocal(){
 async function saveLocal(){
   if (state.currentIndex != null) applyFormToApp(state.currentIndex);
   const issues = validate();
-  if (issues.length){ alert("Resolve these issues:\n\n" + issues.map(s=>"• "+s).join("\n")); return; }
+  if (issues.length){
+    alert("Resolve these issues:\n\n" + issues.map((s) => "- " + s).join("\n"));
+    return;
+  }
   stampGenerated();
   const text = buildJSON();
   $("#previewBox").value = text;
@@ -1725,8 +1848,8 @@ function applyVerifiedTokenStatus(info){
       const friendlySource = sourceLabels[info.source] || (info.source ? info.source : "Unknown");
       details.innerHTML = [
         renderTile("Stored via", friendlySource, { meta: info.source || "local" }),
-        renderTile("Scopes", info.scopes?.length ? info.scopes.join(", ") : "None reported")
-      ].join("");
+        renderTile("Scopes", info.scopes?.length ? info.scopes.join(" | ") : "None reported")
+      ].join(" | ");
     }
     return;
   }
@@ -1742,14 +1865,14 @@ function applyVerifiedTokenStatus(info){
     if (info.type) accountMeta.push(info.type);
     const friendlySource = sourceLabels[info.source] || (info.source ? info.source : "Unknown");
     const scopesHtml = info.scopes?.length
-      ? info.scopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join(" ")
+      ? info.scopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join(" | ")
       : "<span class=\"tile-meta\">None reported</span>";
     const acceptedHtml = info.acceptedScopes?.length
-      ? info.acceptedScopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join(" ")
+      ? info.acceptedScopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join(" | ")
       : "<span class=\"tile-meta\">None</span>";
     const metaTiles = [
       renderTile("Account", info.login || info.name || "Unknown", {
-        meta: accountMeta.length ? accountMeta.join(" / ") : null
+        meta: accountMeta.length ? accountMeta.join(" | ") : null
       }),
       renderTile("Stored via", friendlySource, {
         meta: info.source || "local"
@@ -1757,7 +1880,7 @@ function applyVerifiedTokenStatus(info){
       renderTile("Endpoint expects", acceptedHtml, {
         rawValue: true
       })
-    ].join("");
+    ].join(" | ");
     const scopesTile = renderTile("Token scopes", scopesHtml, {
       rawValue: true,
       className: "tile-scopes"
@@ -1804,7 +1927,7 @@ function applyDataStatusToOnboarding(status){
       status.paths?.settings ? renderTile("Settings JSON", status.paths.settings) : "",
       status.paths?.tokenMeta ? renderTile("Token metadata", status.paths.tokenMeta) : "",
       status.storePath ? renderTile("Electron store", status.storePath) : ""
-    ].filter(Boolean).join("");
+    ].filter(Boolean).join(" | ");
   }
 }
 async function refreshOnboardingStatus(options = {}){
@@ -1949,11 +2072,11 @@ async function verifyToken(){
       const lines = [];
       lines.push(`Source: ${info.source || "unknown"}`);
       if (info.login) lines.push(`Account: ${info.login}${info.name ? ` (${info.name})` : ""}`);
-      if (info.scopes?.length) lines.push(`Token scopes: ${info.scopes.join(", ")}`);
+      if (info.scopes?.length) lines.push(`Token scopes: ${info.scopes.join(" | ")}`);
       else lines.push("Token scopes: none reported.");
-      if (info.acceptedScopes?.length) lines.push(`Endpoint expects scopes (example /user): ${info.acceptedScopes.join(", ")}`);
+      if (info.acceptedScopes?.length) lines.push(`Endpoint expects scopes (example /user): ${info.acceptedScopes.join(" | ")}`);
       if (info.error) lines.push(`Warning: ${info.error}`);
-      alert(`Token check:\n\n${lines.join("\n")}`);
+      alert(`Token check:\n\n${lines.join(" | ")}`);
       setStatus(info.error ? "Token check returned warnings." : `Token verified for ${info.login || "GitHub"}.`, 6000);
     }catch(err){
       console.error(err);
@@ -2005,7 +2128,7 @@ async function verifyToken(){
     if (info.name && info.name !== info.login) accountMeta.push(info.name);
     if (info.type) accountMeta.push(info.type);
     const rows = [
-      { label: "Account", value: accountLabel, sub: accountMeta.join(" / ") || null },
+      { label: "Account", value: accountLabel, sub: accountMeta.join(" | ") || null },
       { label: "Stored via", value: friendlySource, sub: info.source && friendlySource !== info.source ? info.source : null },
       { label: "Token scopes", code: info.scopes || [], empty: "No scopes reported" }
     ];
@@ -2114,7 +2237,7 @@ function applyWizardStatus(page, validation){
   if (!status) return;
   const blocking = [];
   for (let i = 1; i <= page; i += 1) blocking.push(...validation.errors[i]);
-  const formatLines = (list) => list.map(msg => `- ${escapeHtml(msg)}`).join("<br>");
+  const formatLines = (list) => list.map(msg => `- ${escapeHtml(msg)}`).join(" | ");
 
   if (blocking.length) {
     status.hidden = false;
@@ -2291,7 +2414,7 @@ function buildAboutReport(info){
   const lines = [];
   const name = data?.name || "Version Tracker";
   const version = data?.version ? `v${data.version}` : "";
-  lines.push([name, version].filter(Boolean).join(" ").trim());
+  lines.push([name, version].filter(Boolean).join(" | ").trim());
   if (data?.description) lines.push(data.description);
   lines.push("");
   lines.push("Application");
@@ -2319,7 +2442,7 @@ function buildAboutReport(info){
     if (repo.path) lines.push(`  Path: ${repo.path}`);
     lines.push(`  URL: https://github.com/${repo.owner}/${repo.repo}`);
   }
-  return lines.join("\n").trim();
+  return lines.join(" | ").trim();
 }
 async function openAboutDialog(){
   const dlg = $("#aboutDialog");
@@ -2449,7 +2572,33 @@ function bind(){
     });
   });
 
-  // Change → dirty
+  const calendarIncludeUndated = $("#calendarIncludeUndated");
+  if (calendarIncludeUndated) {
+    calendarIncludeUndated.checked = state.calendar.includeUndated !== false;
+    calendarIncludeUndated.addEventListener("change", () => {
+      state.calendar.includeUndated = calendarIncludeUndated.checked;
+      renderReleaseCalendar();
+    });
+  }
+  const calendarSearchInput = $("#calendarSearch");
+  if (calendarSearchInput) {
+    calendarSearchInput.value = state.calendar.search || "";
+    calendarSearchInput.addEventListener("input", () => {
+      state.calendar.search = calendarSearchInput.value;
+      renderReleaseCalendar();
+    });
+  }
+  const calendarResetBtn = $("#calendarResetFilters");
+  if (calendarResetBtn) {
+    calendarResetBtn.addEventListener("click", () => {
+      state.calendar.filters = { stable: true, beta: true, history: false };
+      state.calendar.view = "all";
+      state.calendar.includeUndated = true;
+      state.calendar.search = "";
+      renderReleaseCalendar();
+    });
+  }
+  // Mark content edits as dirty
   $$("#content input, #content textarea, #content select").forEach(el => {
     el.addEventListener("input", () => setFormDirty(true));
   });
@@ -2547,7 +2696,11 @@ function bind(){
   $("#btnSaveJson").addEventListener("click", saveLocal);
   $("#btnValidate").addEventListener("click", () => {
     const issues = validate();
-    alert(issues.length ? "Issues:\n\n" + issues.map(s=>"• "+s).join("\n") : "No issues found. ✨");
+    if (issues.length) {
+      alert("Issues:\n\n" + issues.map((s) => "- " + s).join("\n"));
+    } else {
+      alert("No issues found. :)");
+    }
   });
 
   // Settings

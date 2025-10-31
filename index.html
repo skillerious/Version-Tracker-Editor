@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
-  <title>Version Tracker — Skillerious</title>
+  <title>Version Tracker - Skillerious</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta http-equiv="Content-Security-Policy"
         content="default-src 'self';
@@ -66,7 +66,7 @@
       <button data-tab="tab-editor" title="Editor"><img src="assets/ic-identity.svg" alt="Editor"></button>
       <button data-tab="tab-wizard" title="Wizard"><img src="assets/ic-wand.svg" alt="Wizard"></button>
       <button data-tab="tab-preview" title="Preview"><img src="assets/ic-files.svg" alt="Preview"></button>
-      <button data-tab="tab-calendar" title="Calendar"><img src="assets/ic-review.svg" alt="Calendar"></button>
+      <button data-tab="tab-calendar" title="Calendar"><img src="assets/ic-calendar.svg" alt="Calendar"></button>
     </div>
     <div class="activity-bottom">
       <button data-tab="tab-settings" title="Settings"><img src="assets/ic-settings.svg" alt="Settings"></button>
@@ -92,12 +92,12 @@
       <div class="side-footer">
         <button id="shaBadge" class="side-sha" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="shaPopover" aria-label="No manifest SHA yet">
           <span class="sha-badge-label">SHA</span>
-          <span id="shaBadgeValue" class="sha-badge-value">&mdash;</span>
+          <span id="shaBadgeValue" class="sha-badge-value">--</span>
           <span class="sha-badge-icon" aria-hidden="true">i</span>
         </button>
         <div id="shaPopover" class="sha-popover" role="status" aria-hidden="true" hidden>
           <div class="sha-popover-title">Current manifest SHA</div>
-          <code id="shaPopoverValue" class="sha-popover-code">&mdash;</code>
+          <code id="shaPopoverValue" class="sha-popover-code">--</code>
           <p class="sha-popover-hint">Updates after a fetch or commit.</p>
         </div>
       </div>
@@ -274,8 +274,8 @@
               </div>
             </div>
             <div class="wiz-footer row end gap">
-              <button id="wzBack" disabled>← Back</button>
-              <button id="wzNext">Next →</button>
+              <button id="wzBack" disabled>< Back</button>
+              <button id="wzNext">Next ></button>
               <button id="wzFinish" class="ok" hidden>Finish & Apply</button>
             </div>
           </div>
@@ -321,17 +321,60 @@
               <strong id="calendarStaleCount" class="summary-value">0</strong>
               <span class="summary-hint">Older than 60 days</span>
             </div>
+            <div class="calendar-summary-item summary-undated">
+              <span class="summary-label">Undated</span>
+              <strong id="calendarUndatedCount" class="summary-value">0</strong>
+              <span class="summary-hint">Missing target date</span>
+            </div>
           </div>
           <div class="calendar-controls">
-            <div id="calendarViewToggle" class="calendar-view-toggle" role="group" aria-label="Timeline view">
-              <button type="button" data-view="all" class="active">All</button>
-              <button type="button" data-view="upcoming">Upcoming</button>
-              <button type="button" data-view="stale">Stale</button>
+            <div class="calendar-controls-main">
+              <div id="calendarViewToggle" class="calendar-view-toggle" role="group" aria-label="Timeline view">
+                <button type="button" data-view="all" class="active">All</button>
+                <button type="button" data-view="upcoming">Upcoming</button>
+                <button type="button" data-view="recent">Recent</button>
+                <button type="button" data-view="stale">Stale</button>
+              </div>
+              <div class="calendar-filter-group" role="group" aria-label="Release types">
+                <label class="calendar-filter"><input id="calendarFilterStable" type="checkbox" data-filter="stable" checked>Stable</label>
+                <label class="calendar-filter"><input id="calendarFilterBeta" type="checkbox" data-filter="beta" checked>Beta</label>
+                <label class="calendar-filter"><input id="calendarFilterHistory" type="checkbox" data-filter="history">History</label>
+                <label class="calendar-toggle"><input id="calendarIncludeUndated" type="checkbox" checked>Include undated</label>
+              </div>
             </div>
-            <div class="calendar-filter-group" role="group" aria-label="Release types">
-              <label class="calendar-filter"><input id="calendarFilterStable" type="checkbox" data-filter="stable" checked>Stable</label>
-              <label class="calendar-filter"><input id="calendarFilterBeta" type="checkbox" data-filter="beta" checked>Beta</label>
-              <label class="calendar-filter"><input id="calendarFilterHistory" type="checkbox" data-filter="history">History</label>
+            <div class="calendar-controls-side">
+              <label class="calendar-search" for="calendarSearch">
+                <span class="sr-only">Search releases</span>
+                <input id="calendarSearch" type="search" placeholder="Search apps, versions, notes..." autocomplete="off">
+              </label>
+              <button id="calendarResetFilters" type="button" class="ghost subtle calendar-reset-btn">Reset</button>
+            </div>
+          </div>
+        </div>
+        <div class="card calendar-highlights-card">
+          <div class="calendar-highlights-header">
+            <h3>Highlights</h3>
+          </div>
+          <div class="calendar-highlights-grid">
+            <div class="calendar-highlight highlight-next">
+              <span class="highlight-label">Next release</span>
+              <strong id="calendarNextRelease" class="highlight-value">--</strong>
+              <span id="calendarNextReleaseMeta" class="highlight-meta muted">No upcoming releases scheduled.</span>
+            </div>
+            <div class="calendar-highlight highlight-recent">
+              <span class="highlight-label">Latest shipped</span>
+              <strong id="calendarRecentRelease" class="highlight-value">--</strong>
+              <span id="calendarRecentReleaseMeta" class="highlight-meta muted">No recent releases recorded.</span>
+            </div>
+            <div class="calendar-highlight highlight-stale">
+              <span class="highlight-label">Oldest stale</span>
+              <strong id="calendarOldestStale" class="highlight-value">--</strong>
+              <span id="calendarOldestStaleMeta" class="highlight-meta muted">All tracks look healthy.</span>
+            </div>
+            <div class="calendar-highlight highlight-undated">
+              <span class="highlight-label">Undated tracks</span>
+              <strong id="calendarUndatedSummary" class="highlight-value">0</strong>
+              <span id="calendarUndatedSummaryMeta" class="highlight-meta muted">Add target dates to track progress.</span>
             </div>
           </div>
         </div>
@@ -405,7 +448,7 @@
       <span id="sbText">Ready.</span>
     </div>
     <div class="sb-right">
-      <span id="sbHelp" class="muted">F5: Fetch • Ctrl+S: Commit</span>
+      <span id="sbHelp" class="muted">F5: Fetch | Ctrl+S: Commit</span>
     </div>
   </footer>
 
