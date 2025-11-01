@@ -1,4 +1,4 @@
-ï»¿/* global vt */
+/* global vt */
 
 // -------- Guards (helpful if preload fails during setup)
 if (!("vt" in window)) {
@@ -109,19 +109,45 @@ function setStatus(msg, ms=3000){
 }
 const UPDATE_STATUS_META = {
   pending: { tooltip: "Update status pending", chip: "Status pending" },
-  checking: { tooltip: "Checking for updatesâ€¦", chip: "Checking updates" },
+  checking: { tooltip: "Checking for updates…", chip: "Checking updates" },
   available: { tooltip: "Update available", chip: "Update available" },
   current: { tooltip: "Up to date", chip: "Up to date" },
   error: { tooltip: "Update check failed", chip: "Check failed" }
 };
 const UPDATE_STATUS_COPY = {
-  pending: { title: "Checking update status", lead: "Weâ€™ll let you know once weâ€™ve fetched release information." },
-  checking: { title: "Checking for updatesâ€¦", lead: "Hang tight while we contact GitHub for the latest release." },
+  pending: { title: "Checking update status", lead: "We’ll let you know once we’ve fetched release information." },
+  checking: { title: "Checking for updates…", lead: "Hang tight while we contact GitHub for the latest release." },
   available: { title: "A fresh build is ready", lead: "Download the latest Version Tracker release to get new features and fixes." },
-  current: { title: "Youâ€™re up to date", lead: "Youâ€™re running the latest Version Tracker build." },
-  error: { title: "Update check failed", lead: "We couldnâ€™t reach the update service. Try again shortly." }
+  current: { title: "You’re up to date", lead: "You’re running the latest Version Tracker build." },
+  error: { title: "Update check failed", lead: "We couldn’t reach the update service. Try again shortly." }
 };
-const updateState = { status: "available" };
+const UPDATE_FALLBACK_REPO = { owner: "skillerious", repo: "VersionTrackerEditorElectron" };
+const UPDATE_USER_AGENT = "VersionTrackerEditor/UpdateCheck";
+const UPDATE_RELEASES_PER_PAGE = 6;
+let updateProgressHideTimer = null;
+const updateState = {
+  status: "pending",
+  checking: false,
+  currentVersion: "",
+  currentVersionRaw: "",
+  latestVersion: "",
+  latestVersionRaw: "",
+  isPrerelease: false,
+  releaseNotes: "",
+  releasePublishedAt: null,
+  releaseUrl: "",
+  repoHtmlUrl: "",
+  repo: { ...UPDATE_FALLBACK_REPO },
+  downloadUrl: "",
+  downloadLabel: "",
+  downloadAsset: null,
+  release: null,
+  errorMessage: "",
+  lastChecked: null,
+  platform: null,
+  appName: "Version Tracker",
+  progressMessage: ""
+};
 function setUpdateStatus(status = "pending", overrides = {}) {
   const normalized = UPDATE_STATUS_META[status] ? status : "pending";
   updateState.status = normalized;
@@ -154,11 +180,457 @@ function openUpdateDialog(){
   const dlg = $("#updateDialog");
   if (!dlg) return;
   setUpdateStatus(updateState.status);
+  refreshUpdateDetails();
   if (!dlg.open) dlg.showModal();
+  if (!updateState.checking && updateState.status === "pending") {
+    checkForUpdates({ userInitiated: true }).catch((err) => {
+      console.error("Update dialog check failed:", err);
+    });
+  }
 }
 function closeUpdateDialog(){
   const dlg = $("#updateDialog");
   if (dlg?.open) dlg.close();
+}
+function normalizeVersionTag(version){
+  if (version == null) return "";
+  return String(version).trim().replace(/^v/i, "");
+}
+function parseSemver(version){
+  const normalized = normalizeVersionTag(version);
+  if (!normalized) return null;
+  const [core, prerelease = ""] = normalized.split("-", 2);
+  const parts = core.split(".").map((segment) => {
+    const num = Number.parseInt(segment, 10);
+    return Number.isNaN(num) ? 0 : num;
+  });
+  if (!parts.length) return null;
+  const [major = 0, minor = 0, patch = 0] = parts.concat([0, 0, 0]).slice(0, 3);
+  return { major, minor, patch, prerelease };
+}
+function compareSemver(a, b){
+  const pa = parseSemver(a);
+  const pb = parseSemver(b);
+  if (!pa && !pb) return 0;
+  if (!pa) return -1;
+  if (!pb) return 1;
+  if (pa.major !== pb.major) return pa.major > pb.major ? 1 : -1;
+  if (pa.minor !== pb.minor) return pa.minor > pb.minor ? 1 : -1;
+  if (pa.patch !== pb.patch) return pa.patch > pb.patch ? 1 : -1;
+  if (pa.prerelease && !pb.prerelease) return -1;
+  if (!pa.prerelease && pb.prerelease) return 1;
+  if (pa.prerelease === pb.prerelease) return 0;
+  return pa.prerelease > pb.prerelease ? 1 : -1;
+}
+function formatVersionDisplay(version){
+  if (!version) return "--";
+  const text = String(version).trim();
+  if (!text) return "--";
+  return /^v/i.test(text) ? text : `v${text}`;
+}
+function formatReleaseDateMeta(iso){
+  if (!iso) return "";
+  const published = new Date(iso);
+  if (Number.isNaN(published.getTime())) return "";
+  const day = new Date(Date.UTC(
+    published.getUTCFullYear(),
+    published.getUTCMonth(),
+    published.getUTCDate()
+  ));
+  const diff = diffInDays(day, startOfTodayUtc());
+  const relative = describeRelativeDays(diff);
+  const absolute = published.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  if (!relative || relative === "No date") return absolute;
+  if (relative === "Today") return `Today (${absolute})`;
+  return `${relative} (${absolute})`;
+}
+function deriveUpdateRepo(info){
+  const homepage = (info?.homepage || "").trim();
+  const match = homepage.match(/^https?:\/\/github\.com\/([^\/]+)\/([^\/#?]+)/i);
+  if (match) {
+    return { owner: match[1], repo: match[2].replace(/\.git$/i, "") };
+  }
+  return { ...UPDATE_FALLBACK_REPO };
+}
+function repoToHtmlUrl(repo){
+  if (!repo?.owner || !repo?.repo) return "";
+  return `https://github.com/${repo.owner}/${repo.repo}`;
+}
+function repoReleaseUrl(repo){
+  const base = repoToHtmlUrl(repo);
+  return base ? `${base}/releases` : "";
+}
+function assetName(asset){
+  return String(asset?.name || "").toLowerCase();
+}
+function pickDownloadAsset(assets, platform){
+  if (!Array.isArray(assets) || !assets.length) return null;
+  const candidates = assets.filter((asset) => asset?.browser_download_url);
+  if (!candidates.length) return null;
+  const os = String(platform?.os || "").toLowerCase();
+  const arch = String(platform?.arch || "").toLowerCase();
+  const tests = [];
+  if (arch.includes("arm")) tests.push((asset) => /arm|aarch/.test(assetName(asset)));
+  else if (arch.includes("64")) tests.push((asset) => /(x64|64)/.test(assetName(asset)));
+  if (os.includes("win")) {
+    tests.push((asset) => assetName(asset).endsWith(".exe"));
+    tests.push((asset) => assetName(asset).endsWith(".msi"));
+    tests.push((asset) => /win|windows/.test(assetName(asset)));
+  } else if (os.includes("darwin") || os.includes("mac")) {
+    tests.push((asset) => assetName(asset).endsWith(".dmg"));
+    tests.push((asset) => assetName(asset).endsWith(".pkg"));
+    tests.push((asset) => assetName(asset).endsWith(".zip") && /(mac|darwin|osx)/.test(assetName(asset)));
+  } else if (os.includes("linux")) {
+    tests.push((asset) => assetName(asset).endsWith(".appimage"));
+    tests.push((asset) => assetName(asset).endsWith(".deb"));
+    tests.push((asset) => assetName(asset).endsWith(".rpm"));
+    tests.push((asset) => /\.tar\.(gz|xz)$/.test(assetName(asset)));
+  }
+  for (const test of tests) {
+    const found = candidates.find((asset) => {
+      try { return test(asset); } catch { return false; }
+    });
+    if (found) return found;
+  }
+  return candidates[0];
+}
+function extractReleaseNotes(markdown = ""){
+  const text = String(markdown || "");
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const paragraphs = [];
+  const bullets = [];
+  let buffer = [];
+  const flushBuffer = () => {
+    if (!buffer.length) return;
+    paragraphs.push(buffer.join(" "));
+    buffer = [];
+  };
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushBuffer();
+      continue;
+    }
+    if (/^#{1,6}\s+/.test(line)) {
+      flushBuffer();
+      continue;
+    }
+    if (/^[-*+]\s+/.test(line)) {
+      flushBuffer();
+      const bullet = line.replace(/^[-*+]\s+/, "").trim();
+      if (bullet) bullets.push(bullet);
+      continue;
+    }
+    buffer.push(line);
+  }
+  flushBuffer();
+  const intro = paragraphs.shift() || "";
+  return { intro, bullets, paragraphs };
+}
+function formatTimeAgo(date){
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  if (diffMs <= 0) return "just now";
+  const mins = Math.round(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins === 1) return "1 minute ago";
+  if (mins < 60) return `${mins} minutes ago`;
+  const hours = Math.round(mins / 60);
+  if (hours === 1) return "1 hour ago";
+  if (hours < 24) return `${hours} hours ago`;
+  const days = Math.round(hours / 24);
+  if (days === 1) return "1 day ago";
+  return `${days} days ago`;
+}
+function renderUpdateNotes(){
+  const container = $("#updateReleaseNotes");
+  if (!container) return;
+  container.innerHTML = "";
+  const status = updateState.status;
+  const appendParagraph = (text, className = "update-notes-intro") => {
+    const p = document.createElement("p");
+    p.className = className;
+    p.textContent = text;
+    container.append(p);
+  };
+  if (status === "checking") {
+    appendParagraph("Fetching release notes…");
+    return;
+  }
+  if (status === "pending") {
+    appendParagraph("We'll pull in release notes once an update check runs.");
+    return;
+  }
+  if (status === "error") {
+    appendParagraph(updateState.errorMessage || "Update check failed. Try again shortly.");
+    if (updateState.lastChecked) appendParagraph(`Last attempted ${formatTimeAgo(updateState.lastChecked)}.`, "update-notes-meta");
+    return;
+  }
+  if (!updateState.release) {
+    appendParagraph("We couldn't find any published releases for this project yet.");
+    if (updateState.lastChecked) appendParagraph(`Last checked ${formatTimeAgo(updateState.lastChecked)}.`, "update-notes-meta");
+    return;
+  }
+  const { intro, bullets, paragraphs } = extractReleaseNotes(updateState.releaseNotes);
+  if (intro) appendParagraph(intro);
+  else appendParagraph(status === "available" ? "Here's what's new in this release:" : "Latest release highlights:");
+  if (bullets.length) {
+    const list = document.createElement("ul");
+    bullets.slice(0, 6).forEach((item) => {
+      const li = document.createElement("li");
+      li.textContent = item;
+      list.append(li);
+    });
+    container.append(list);
+  }
+  paragraphs.slice(0, 2).forEach((para) => {
+    const p = document.createElement("p");
+    p.textContent = para;
+    container.append(p);
+  });
+  if (updateState.isPrerelease) {
+    appendParagraph("This build is marked as a pre-release.", "update-notes-meta");
+  }
+  if (updateState.lastChecked) appendParagraph(`Last checked ${formatTimeAgo(updateState.lastChecked)}.`, "update-notes-meta");
+}
+function refreshUpdateDetails(){
+  const currentVersionEl = $("#updateCurrentVersion");
+  if (currentVersionEl) {
+    const value = updateState.currentVersion || updateState.currentVersionRaw;
+    currentVersionEl.textContent = formatVersionDisplay(value);
+  }
+  const currentMetaEl = $("#updateCurrentMeta");
+  if (currentMetaEl) {
+    currentMetaEl.textContent = updateState.currentVersion ? "Installed locally" : "Version unknown";
+  }
+  const availableVersionEl = $("#updateAvailableVersion");
+  if (availableVersionEl) {
+    const value = updateState.latestVersion || updateState.latestVersionRaw || updateState.currentVersion || "";
+    availableVersionEl.textContent = formatVersionDisplay(value);
+  }
+  const availableMetaEl = $("#updateAvailableMeta");
+  if (availableMetaEl) {
+    let metaText = "";
+    if (updateState.status === "checking") metaText = "Contacting GitHub…";
+    else if (updateState.status === "pending") metaText = "Awaiting update check.";
+    else if (updateState.status === "error") metaText = "Update check failed.";
+    else if (updateState.release) {
+      const releaseMeta = formatReleaseDateMeta(updateState.releasePublishedAt);
+      if (updateState.status === "available") {
+        const parts = [];
+        if (releaseMeta) parts.push(`Released ${releaseMeta}`);
+        if (updateState.isPrerelease) parts.push("Marked as pre-release");
+        metaText = parts.join(" • ") || "Ready when you are.";
+      } else {
+        const parts = [];
+        if (releaseMeta) parts.push(`Latest release ${releaseMeta}`);
+        parts.push(updateState.isPrerelease ? "Pre-release" : "Latest published build");
+        metaText = parts.join(" • ");
+      }
+    } else {
+      metaText = updateState.status === "current" ? "No newer builds were found." : "Waiting for release data.";
+    }
+    availableMetaEl.textContent = metaText;
+  }
+  const checkBtn = $("#updateCheck");
+  if (checkBtn) {
+    setButtonBusy(checkBtn, updateState.checking);
+    const labelEl = checkBtn.querySelector(".btn-label");
+    const text = updateState.checking ? "Checking…" : "Check again";
+    if (labelEl) labelEl.textContent = text;
+    else checkBtn.textContent = text;
+  }
+  const downloadBtn = $("#updateDownload");
+  if (downloadBtn) {
+    const hasDirect = Boolean(updateState.downloadUrl);
+    const ready = updateState.status === "available" && (hasDirect || updateState.releaseUrl);
+    let label = "Download update";
+    if (updateState.status === "available") {
+      label = hasDirect
+        ? (updateState.downloadLabel || "Download update")
+        : "Open release page";
+    }
+    downloadBtn.disabled = !ready;
+    const labelEl = downloadBtn.querySelector(".btn-label");
+    if (labelEl) labelEl.textContent = label;
+    else downloadBtn.textContent = label;
+    downloadBtn.dataset.mode = hasDirect ? "download" : "link";
+    const ariaLabel = ready
+      ? (hasDirect ? `Download ${updateState.downloadLabel || "latest release"}` : "Open release page")
+      : "Download unavailable";
+    downloadBtn.setAttribute("aria-label", ariaLabel);
+  }
+  const viewReleaseBtn = $("#updateViewRelease");
+  if (viewReleaseBtn) {
+    const href = updateState.releaseUrl || updateState.repoHtmlUrl;
+    viewReleaseBtn.dataset.href = href || "";
+    viewReleaseBtn.disabled = !href;
+  }
+  const progressWrap = $("#updateProgress");
+  if (progressWrap) {
+    const labelEl = $("#updateProgressLabel");
+    const bar = progressWrap.querySelector(".update-progress-bar");
+    const active = updateState.checking;
+    const message = updateState.progressMessage || (active ? "Checking for updates…" : "");
+    progressWrap.hidden = !active && !message;
+    progressWrap.classList.toggle("is-active", active);
+    progressWrap.dataset.state = active ? "checking" : (updateState.status || "pending");
+    if (labelEl) labelEl.textContent = message;
+    if (bar) {
+      bar.classList.toggle("is-animated", active);
+      bar.classList.toggle("is-complete", !active && message && updateState.status !== "error");
+      bar.classList.toggle("is-error", !active && message && updateState.status === "error");
+    }
+  }
+  renderUpdateNotes();
+}
+async function fetchLatestRelease(repo, token){
+  const params = new URLSearchParams({ per_page: String(UPDATE_RELEASES_PER_PAGE) });
+  const url = `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases?${params.toString()}`;
+  const headers = {
+    "Accept": "application/vnd.github+json",
+    "User-Agent": UPDATE_USER_AGENT
+  };
+  if (token) {
+    const trimmed = String(token || "").trim();
+    if (trimmed) {
+      const scheme = trimmed.startsWith("github_pat_") ? "Bearer" : "token";
+      headers.Authorization = `${scheme} ${trimmed}`;
+    }
+  }
+  let res;
+  try {
+    res = await fetch(url, { headers });
+  } catch (err) {
+    throw new Error("Network error contacting GitHub for updates.");
+  }
+  if (res.status === 404) {
+    throw new Error(`No release feed found for ${repo.owner}/${repo.repo}.`);
+  }
+  const body = await res.text();
+  if (!res.ok) {
+    let message = `GitHub update check failed: ${res.status} ${res.statusText}`;
+    try {
+      const parsed = JSON.parse(body || "{}");
+      if (parsed?.message) message += `\n${parsed.message}`;
+    } catch {}
+    throw new Error(message);
+  }
+  let releases;
+  try {
+    releases = JSON.parse(body);
+  } catch {
+    throw new Error("Received an invalid response from GitHub when Checking for updates…");
+  }
+  if (!Array.isArray(releases) || !releases.length) return null;
+  return releases.find((rel) => !rel.draft && !rel.prerelease)
+    || releases.find((rel) => !rel.draft)
+    || releases[0];
+}
+async function checkForUpdates(options = {}){
+  if (updateState.checking) return;
+  const { userInitiated = false } = options;
+  updateState.checking = true;
+  if (updateProgressHideTimer) {
+    clearTimeout(updateProgressHideTimer);
+    updateProgressHideTimer = null;
+  }
+  updateState.progressMessage = userInitiated
+    ? "Checking GitHub for the newest release…"
+    : "Refreshing release information…";
+  updateState.errorMessage = "";
+  setUpdateStatus("checking", userInitiated ? { lead: "Checking for updates…" } : undefined);
+  refreshUpdateDetails();
+  const repo = updateState.repo || { ...UPDATE_FALLBACK_REPO };
+  let succeeded = false;
+  try {
+    let token = "";
+    try {
+      const stored = await vt.token.get();
+      token = stored?.token || "";
+    } catch {}
+    const release = await fetchLatestRelease(repo, token);
+    updateState.lastChecked = new Date();
+    if (!release) {
+      updateState.latestVersion = "";
+      updateState.latestVersionRaw = "";
+      updateState.release = null;
+      updateState.releaseNotes = "";
+      updateState.releasePublishedAt = null;
+      updateState.downloadUrl = "";
+      updateState.downloadLabel = "";
+      updateState.downloadAsset = null;
+      updateState.releaseUrl = repoReleaseUrl(repo);
+      updateState.isPrerelease = false;
+      setUpdateStatus("current", { lead: "We couldn't find any published releases yet for this project." });
+      refreshUpdateDetails();
+      return;
+    }
+    const latestRaw = release.tag_name || release.name || "";
+    const latestNormalized = normalizeVersionTag(latestRaw);
+    updateState.latestVersion = latestNormalized || latestRaw || "";
+    updateState.latestVersionRaw = latestRaw || latestNormalized || "";
+    updateState.release = release;
+    updateState.releaseNotes = (release.body || "").trim();
+    updateState.releasePublishedAt = release.published_at || release.created_at || null;
+    updateState.releaseUrl = release.html_url || repoReleaseUrl(repo);
+    updateState.isPrerelease = Boolean(release.prerelease);
+    const asset = pickDownloadAsset(release.assets || [], updateState.platform);
+    updateState.downloadAsset = asset;
+    updateState.downloadUrl = asset?.browser_download_url || "";
+    updateState.downloadLabel = asset?.name || (latestNormalized ? `Download ${formatVersionDisplay(latestNormalized)}` : "");
+    const currentVersion = updateState.currentVersion;
+    const comparison = latestNormalized && currentVersion ? compareSemver(latestNormalized, currentVersion) : (latestNormalized ? 1 : 0);
+    const nextStatus = comparison > 0 ? "available" : "current";
+    const lead = nextStatus === "available"
+      ? `Version ${formatVersionDisplay(latestNormalized || latestRaw)} is ready. Download to get the latest improvements.`
+      : "You're running the latest Version Tracker build.";
+    setUpdateStatus(nextStatus, { lead });
+    refreshUpdateDetails();
+    succeeded = true;
+  } catch (err) {
+    updateState.errorMessage = err?.message || "Update check failed.";
+    updateState.progressMessage = "Update check failed.";
+    setUpdateStatus("error", { lead: "We couldn't reach the update service. Try again shortly." });
+    refreshUpdateDetails();
+  } finally {
+    updateState.checking = false;
+    if (!updateState.lastChecked) updateState.lastChecked = new Date();
+    if (succeeded) updateState.progressMessage = "Update info refreshed.";
+    refreshUpdateDetails();
+    updateProgressHideTimer = window.setTimeout(() => {
+      updateState.progressMessage = "";
+      updateProgressHideTimer = null;
+      refreshUpdateDetails();
+    }, succeeded ? 1400 : 2200);
+  }
+}
+async function bootstrapUpdates(){
+  setUpdateStatus(updateState.status);
+  refreshUpdateDetails();
+  try {
+    const info = await vt.app.info();
+    if (info?.name) updateState.appName = info.name;
+    if (info?.version) {
+      updateState.currentVersionRaw = info.version;
+      updateState.currentVersion = normalizeVersionTag(info.version);
+    }
+    if (info?.platform) updateState.platform = info.platform;
+    const repo = deriveUpdateRepo(info);
+    updateState.repo = repo;
+    updateState.repoHtmlUrl = repoToHtmlUrl(repo);
+    updateState.releaseUrl = repoReleaseUrl(repo);
+  } catch (err) {
+    console.error("Failed to load app info for updates:", err);
+    updateState.repo = { ...UPDATE_FALLBACK_REPO };
+    updateState.repoHtmlUrl = repoToHtmlUrl(updateState.repo);
+    updateState.releaseUrl = repoReleaseUrl(updateState.repo);
+  }
+  refreshUpdateDetails();
+  checkForUpdates({ userInitiated: false }).catch((err) => {
+    console.error("Background update check failed:", err);
+  });
 }
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -1859,7 +2331,7 @@ function refreshSettingsSnapshot(){
   if (tokenStoredVia) tokenStoredVia.textContent = hasToken ? sourceLabel : "--";
   if (tokenStoredMeta) tokenStoredMeta.textContent = hasToken ? (stored?.source || "local") : "n/a";
   if (tokenAccount) tokenAccount.textContent = hasVerification ? (info.login || info.name || "--") : "--";
-  if (tokenAccountMeta) tokenAccountMeta.textContent = hasVerification && accountParts.length ? accountParts.join(" | ") : "â€”";
+  if (tokenAccountMeta) tokenAccountMeta.textContent = hasVerification && accountParts.length ? accountParts.join(" | ") : "—";
   if (tokenVerified) tokenVerified.textContent = hasVerification ? verifiedText : (info?.error ? "Failed" : "Never");
   if (tokenVerifiedMeta) {
     if (info?.error) tokenVerifiedMeta.textContent = "Verification failed. Check token scopes.";
@@ -2372,7 +2844,7 @@ async function verifyToken(){
     dialog.dataset.state = "loading";
     setVerifyIcon(ctx.icon, "loading");
   }
-  if (status) status.textContent = "Contacting GitHub...";
+  if (status) status.textContent = "Contacting GitHub…..";
   setVerifyLoading(ctx, true);
   showVerifyMessage(ctx, "", null);
   fillVerifyDetails(ctx, []);
@@ -2818,14 +3290,24 @@ function bind(){
     closeUpdateDialog();
   });
   const updateDownload = $("#updateDownload");
-  if (updateDownload) updateDownload.addEventListener("click", () => {
-    closeUpdateDialog();
-  });
+  if (updateDownload) {
+    updateDownload.addEventListener("click", () => {
+      const target = updateState.downloadUrl || updateState.releaseUrl || updateState.repoHtmlUrl;
+      if (target) vt.shell.open(target);
+      closeUpdateDialog();
+    });
+  }
   const updateViewRelease = $("#updateViewRelease");
   if (updateViewRelease) {
     updateViewRelease.addEventListener("click", () => {
-      const url = updateViewRelease.dataset.href;
+      const url = updateState.releaseUrl || updateState.repoHtmlUrl || updateViewRelease.dataset.href;
       if (url) vt.shell.open(url);
+    });
+  }
+  const updateCheck = $("#updateCheck");
+  if (updateCheck) {
+    updateCheck.addEventListener("click", () => {
+      checkForUpdates({ userInitiated: true });
     });
   }
 
@@ -3022,7 +3504,7 @@ function bind(){
         await refreshOnboardingStatus({ includeVerify: true });
         setStatus("Workspace status refreshed.", 2600);
       } finally {
-        setButtonBusy(settingsRefresh, false);
+    setButtonBusy(settingsRefresh, false);
       }
     });
   }
@@ -3281,7 +3763,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   bind();
   initBlank();
   refreshSettingsSnapshot();
-  setUpdateStatus(updateState.status);
+  await bootstrapUpdates();
   await loadOnboardingPreferences();
   await refreshOnboardingStatus({ includeVerify: false });
   if (!onboarding.preferences?.skipOnboarding) {
@@ -3292,3 +3774,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (token && settingsPrefs.autoFetchOnLaunch !== false) fetchFromGitHub();
   } catch {}
 });
+
+
+
+
+
+
+
+
+
