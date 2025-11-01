@@ -248,7 +248,6 @@ A vertical timeline pulling from tracks and (optional) history:
 ├─ index.html        # App shell: titlebar, toolbar, activity bar, tabbed workspace
 ├─ styles.css        # Theme, responsive grids, motion/hover, dialogs
 ├─ assets/           # SVG/ICO icons used across UI
-
 ```
 
 ---
