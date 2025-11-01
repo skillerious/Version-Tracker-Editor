@@ -42,6 +42,13 @@ const wizardState = {
   lastValues: null,
   validation: { errors: { 1: [], 2: [], 3: [] }, warnings: [] }
 };
+const SETTINGS_PREF_KEY = "vt.settings.preferences";
+let settingsPrefs = {
+  autoFetchOnLaunch: true,
+  confirmBeforeCommit: false,
+  showHelperTips: true,
+  compactDensity: false
+};
 const ONBOARDING_STEPS = ["repo", "token", "verify", "data"];
 const ONBOARDING_DEFAULT_LABELS = {
   repo: "Pending setup",
@@ -431,6 +438,7 @@ function refreshShaBadge(){
     popover.dataset.visible = show ? "1" : "0";
     popover.setAttribute("aria-hidden", show ? "false" : "true");
   }
+  refreshSettingsSnapshot();
 }
 function toggleShaPopover(){
   if (!state.sha) return;
@@ -1513,6 +1521,13 @@ async function commitToGitHub(){
     alert("Resolve these issues:\n\n" + issues.map((s) => "- " + s).join("\n"));
     return;
   }
+  if (settingsPrefs.confirmBeforeCommit !== false) {
+    const proceed = confirm("Commit changes to GitHub now?");
+    if (!proceed) {
+      setStatus("Commit cancelled.", 4000);
+      return;
+    }
+  }
   commitInFlight = true;
   const btn = $("#btnCommit");
   setButtonBusy(btn, true);
@@ -1705,6 +1720,183 @@ function capitalizeStep(step){
   if (!step) return "";
   return step.charAt(0).toUpperCase() + step.slice(1);
 }
+function loadSettingsPreferences(){
+  try {
+    const stored = localStorage.getItem(SETTINGS_PREF_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed && typeof parsed === "object") {
+        settingsPrefs = { ...settingsPrefs, ...parsed };
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load settings preferences:", err);
+  }
+}
+function saveSettingsPreferences(){
+  try {
+    localStorage.setItem(SETTINGS_PREF_KEY, JSON.stringify(settingsPrefs));
+  } catch (err) {
+    console.error("Failed to persist settings preferences:", err);
+  }
+}
+function applySettingsPreferences(options = {}){
+  const { skipSave = false } = options;
+  document.body.classList.toggle("compact", !!settingsPrefs.compactDensity);
+  document.body.classList.toggle("tips-hidden", settingsPrefs.showHelperTips === false);
+  updateSettingsToggleUI();
+  if (!skipSave) saveSettingsPreferences();
+}
+function updateSettingsToggleUI(){
+  $$(".settings-toggle").forEach((btn) => {
+    const key = btn.dataset.pref;
+    if (!key) return;
+    const value = !!settingsPrefs[key];
+    btn.dataset.state = value ? "on" : "off";
+    btn.setAttribute("aria-pressed", value ? "true" : "false");
+    const stateLabel = btn.querySelector(".settings-toggle-state");
+    if (stateLabel) stateLabel.textContent = value ? "On" : "Off";
+  });
+}
+const SETTINGS_TOGGLE_MESSAGES = {
+  autoFetchOnLaunch: {
+    on: "Auto fetch enabled. The latest manifest loads on launch.",
+    off: "Auto fetch disabled. Fetch manually when you're ready."
+  },
+  confirmBeforeCommit: {
+    on: "Commit confirmation enabled.",
+    off: "Commit confirmation disabled."
+  },
+  compactDensity: {
+    on: "Compact density enabled.",
+    off: "Compact density disabled."
+  },
+  showHelperTips: {
+    on: "Helper tips visible.",
+    off: "Helper tips hidden."
+  }
+};
+function toggleSettingsPreference(key){
+  if (!(key in settingsPrefs)) return;
+  settingsPrefs[key] = !settingsPrefs[key];
+  applySettingsPreferences();
+  const messages = SETTINGS_TOGGLE_MESSAGES[key];
+  if (messages) {
+    const variant = settingsPrefs[key] ? "on" : "off";
+    setStatus(messages[variant] || "Preference updated.", 2600);
+  } else {
+    setStatus("Preference updated.", 2600);
+  }
+}
+function friendlyTokenSource(source){
+  const map = {
+    keytar: "Secure keychain",
+    store: "Local store",
+    env: "Environment variable",
+    none: "Not available"
+  };
+  return map[source] || (source ? source : "Unknown");
+}
+function refreshSettingsSnapshot(){
+  const repo = `${state.repo.owner}/${state.repo.repo}`;
+  const repoEl = $("#settingsSummaryRepo");
+  if (repoEl) repoEl.textContent = repo;
+  const repoMetaEl = $("#settingsSummaryRepoMeta");
+  if (repoMetaEl) repoMetaEl.textContent = `Publishing to https://github.com/${state.repo.owner}/${state.repo.repo}`;
+  const branchEl = $("#settingsSummaryBranch");
+  if (branchEl) branchEl.textContent = state.repo.branch || "--";
+  const pathEl = $("#settingsSummaryPath");
+  if (pathEl) pathEl.textContent = state.repo.path || "repoversion.json";
+  const shaEl = $("#settingsSummarySha");
+  if (shaEl) shaEl.textContent = state.sha ? state.sha.slice(0, 8) : "--";
+
+  const stored = onboarding.storedToken || null;
+  const hasToken = !!stored?.token;
+  const sourceLabel = friendlyTokenSource(stored?.source);
+  const overviewBadge = $("#settingsTokenBadge");
+  if (overviewBadge) {
+    overviewBadge.dataset.state = hasToken ? "ok" : "warn";
+    overviewBadge.textContent = hasToken ? "Token stored" : "No token stored";
+  }
+  const overviewSource = $("#settingsTokenSource");
+  if (overviewSource) {
+    overviewSource.textContent = hasToken
+      ? `Stored via ${sourceLabel}.`
+      : "Store a token to enable commits.";
+  }
+
+  const tokenStatusChip = $("#settingsTokenStatus");
+  const tokenStatusMeta = $("#settingsTokenStatusMeta");
+  const tokenStoredVia = $("#settingsTokenStoredVia");
+  const tokenStoredMeta = $("#settingsTokenStoredMeta");
+  const tokenAccount = $("#settingsTokenAccount");
+  const tokenAccountMeta = $("#settingsTokenAccountMeta");
+  const tokenVerified = $("#settingsTokenVerified");
+  const tokenVerifiedMeta = $("#settingsTokenVerifiedMeta");
+  const tokenScopesList = $("#settingsTokenScopes");
+
+  const info = onboarding.tokenInfo || null;
+  const hasVerification = !!(info && info.hasToken && !info.error);
+  const verifiedAt = info?.checkedAt ? new Date(info.checkedAt) : null;
+  const verifiedText = verifiedAt ? verifiedAt.toLocaleString() : (hasVerification ? "Just now" : "Never");
+  const accountParts = [];
+  if (info?.name && info.name !== info.login) accountParts.push(info.name);
+  if (info?.type) accountParts.push(info.type);
+
+  if (tokenStatusChip) {
+    const state = info?.error ? "error" : hasToken ? "ok" : "warn";
+    tokenStatusChip.dataset.state = state;
+    tokenStatusChip.textContent = info?.error
+      ? "Verification failed"
+      : hasToken ? "Token stored" : "No token stored";
+  }
+  if (tokenStatusMeta) {
+    if (info?.error) tokenStatusMeta.textContent = info.error;
+    else tokenStatusMeta.textContent = hasToken
+      ? `Stored via ${sourceLabel}.`
+      : "Ready to connect once a token is stored.";
+  }
+  if (tokenStoredVia) tokenStoredVia.textContent = hasToken ? sourceLabel : "--";
+  if (tokenStoredMeta) tokenStoredMeta.textContent = hasToken ? (stored?.source || "local") : "n/a";
+  if (tokenAccount) tokenAccount.textContent = hasVerification ? (info.login || info.name || "--") : "--";
+  if (tokenAccountMeta) tokenAccountMeta.textContent = hasVerification && accountParts.length ? accountParts.join(" | ") : "—";
+  if (tokenVerified) tokenVerified.textContent = hasVerification ? verifiedText : (info?.error ? "Failed" : "Never");
+  if (tokenVerifiedMeta) {
+    if (info?.error) tokenVerifiedMeta.textContent = "Verification failed. Check token scopes.";
+    else tokenVerifiedMeta.textContent = hasVerification
+      ? `Latest check via ${friendlyTokenSource(info?.source)}.`
+      : "Run verification to refresh details.";
+  }
+  if (tokenScopesList) {
+    if (info?.scopes?.length) {
+      tokenScopesList.innerHTML = info.scopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join("");
+    } else {
+      tokenScopesList.textContent = "None reported";
+    }
+  }
+  const summaryVerified = $("#settingsSummaryVerified");
+  const summaryVerifiedMeta = $("#settingsSummaryVerifiedMeta");
+  if (summaryVerified) {
+    if (info?.error) summaryVerified.textContent = "Verification failed";
+    else summaryVerified.textContent = hasVerification ? "Verified" : (hasToken ? "Stored" : "Missing");
+  }
+  if (summaryVerifiedMeta) {
+    if (info?.error) summaryVerifiedMeta.textContent = info.error;
+    else summaryVerifiedMeta.textContent = hasVerification
+      ? `Checked ${verifiedText}.`
+      : hasToken ? "Token stored. Verify to confirm scopes." : "Store a token to enable commits.";
+  }
+
+  const dataStatus = onboarding.dataStatus || null;
+  const workspacePath = $("#settingsPathWorkspace");
+  if (workspacePath) workspacePath.textContent = dataStatus?.dir || "--";
+  const settingsPath = $("#settingsPathSettings");
+  if (settingsPath) settingsPath.textContent = dataStatus?.paths?.settings || "--";
+  const tokenPath = $("#settingsPathToken");
+  if (tokenPath) tokenPath.textContent = dataStatus?.paths?.tokenMeta || "--";
+  const storePath = $("#settingsPathStore");
+  if (storePath) storePath.textContent = dataStatus?.storePath || "--";
+}
 function renderTile(label, value, options = {}){
   const { rawValue = false, meta = null, rawMeta = false, className = "" } = options;
   const valueHtml = rawValue ? String(value ?? "") : escapeHtml(value ?? "");
@@ -1893,8 +2085,10 @@ function applyStoredTokenStatus(stored){
       : "Create a token from GitHub > Settings > Developer settings > Fine-grained tokens, then paste it into the dialog.";
   }
   if (!hasToken) applyVerifiedTokenStatus(null);
+  refreshSettingsSnapshot();
 }
 function applyVerifiedTokenStatus(info){
+  if (info && !info.checkedAt) info.checkedAt = isoNow();
   onboarding.tokenInfo = info || null;
   const summary = $("#onboardVerifySummary");
   const details = $("#onboardVerifyDetails");
@@ -1910,6 +2104,7 @@ function applyVerifiedTokenStatus(info){
     if (summary) summary.textContent = "";
     if (callout) callout.innerHTML = `<strong>Latest check</strong><p>Run verification once you have stored a token.</p><p class="verify-status-detail">We'll display account details after the first successful check.</p>`;
     if (details) details.innerHTML = renderTile("Status", "Waiting for token");
+    refreshSettingsSnapshot();
     return;
   }
   if (info.error){
@@ -1923,6 +2118,7 @@ function applyVerifiedTokenStatus(info){
         renderTile("Scopes", info.scopes?.length ? info.scopes.join(" | ") : "None reported")
       ].join(" | ");
     }
+    refreshSettingsSnapshot();
     return;
   }
   setOnboardingStepStatus("verify", "done", "Token verified");
@@ -1962,6 +2158,7 @@ function applyVerifiedTokenStatus(info){
       <div class="verify-column verify-column-scopes">${scopesTile}</div>
     `;
   }
+  refreshSettingsSnapshot();
 }
 function applyDataStatusToOnboarding(status){
   onboarding.dataStatus = status || null;
@@ -2001,6 +2198,7 @@ function applyDataStatusToOnboarding(status){
       status.storePath ? renderTile("Electron store", status.storePath) : ""
     ].filter(Boolean).join(" | ");
   }
+  refreshSettingsSnapshot();
 }
 async function refreshOnboardingStatus(options = {}){
   updateOnboardingRepoSummary();
@@ -2016,9 +2214,11 @@ async function refreshOnboardingStatus(options = {}){
     if (callout) callout.textContent = err?.message || String(err);
     const grid = $("#onboardTokenGrid");
     if (grid) grid.innerHTML = renderTile("Error", err?.message || String(err));
+    refreshSettingsSnapshot();
   }
   const shouldVerify = options.includeVerify || (options.tokenInfo != null);
   if (options.tokenInfo){
+    if (!options.tokenInfo.checkedAt) options.tokenInfo.checkedAt = isoNow();
     applyVerifiedTokenStatus(options.tokenInfo);
   } else if (shouldVerify){
     const hasToken = !!(onboarding.storedToken?.token);
@@ -2028,6 +2228,7 @@ async function refreshOnboardingStatus(options = {}){
       setOnboardingStepStatus("verify", "progress", "Checking token");
       try{
         const info = await vt.token.info();
+        info.checkedAt = isoNow();
         applyVerifiedTokenStatus(info);
       }catch(err){
         console.error(err);
@@ -2038,6 +2239,7 @@ async function refreshOnboardingStatus(options = {}){
         if (summary) summary.textContent = "";
         const callout = $("#onboardVerifyCallout");
         if (callout) callout.innerHTML = `<strong>Latest check</strong><p>Token verification failed.</p><p class="verify-status-detail is-error">${escapeHtml(err?.message || String(err))}</p>`;
+        refreshSettingsSnapshot();
       }
     }
   } else {
@@ -2055,7 +2257,9 @@ async function refreshOnboardingStatus(options = {}){
     if (summary) summary.textContent = "Workspace status could not be read.";
     const callout = $("#onboardDataCallout p:last-child");
     if (callout) callout.textContent = err?.message || String(err);
+    refreshSettingsSnapshot();
   }
+  refreshSettingsSnapshot();
   const targetStep = options.focusStep
     ? options.focusStep
     : (options.preserveStep === false ? chooseNextOnboardingStep() : (onboarding.activeStep || chooseNextOnboardingStep()));
@@ -2801,13 +3005,75 @@ function bind(){
     $("#repoLabel").textContent = `${state.repo.owner}/${state.repo.repo}@${state.repo.branch}`;
     updateBreadcrumbsFromState();
     setStatus("Repo settings applied.", 3000);
+    refreshSettingsSnapshot();
   });
-  $("#btnOpenRepo").addEventListener("click", () => {
-    vt.shell.open(`https://github.com/${state.repo.owner}/${state.repo.repo}`);
-  });
+  const settingsOpenRepo = $("#settingsOpenRepo");
+  if (settingsOpenRepo) {
+    settingsOpenRepo.addEventListener("click", () => {
+      vt.shell.open(`https://github.com/${state.repo.owner}/${state.repo.repo}`);
+    });
+  }
+  const settingsRefresh = $("#settingsRefresh");
+  if (settingsRefresh) {
+    settingsRefresh.addEventListener("click", async () => {
+      if (settingsRefresh.disabled) return;
+      setButtonBusy(settingsRefresh, true);
+      try {
+        await refreshOnboardingStatus({ includeVerify: true });
+        setStatus("Workspace status refreshed.", 2600);
+      } finally {
+        setButtonBusy(settingsRefresh, false);
+      }
+    });
+  }
   $("#btnTokenSettings").addEventListener("click", openTokenDialog);
   $("#btnTokenVerify").addEventListener("click", verifyToken);
-  $("#btnCompact").addEventListener("click", () => document.body.classList.toggle("compact"));
+  const settingsTokenDocs = $("#settingsViewTokenDocs");
+  if (settingsTokenDocs) settingsTokenDocs.addEventListener("click", () => vt.shell.open("https://github.com/settings/tokens"));
+  $$(".settings-toggle").forEach((toggle) => {
+    toggle.addEventListener("click", () => {
+      const pref = toggle.dataset.pref;
+      if (!pref) return;
+      toggleSettingsPreference(pref);
+    });
+  });
+  updateSettingsToggleUI();
+  const settingsEnsureWorkspace = $("#settingsEnsureWorkspace");
+  if (settingsEnsureWorkspace) settingsEnsureWorkspace.addEventListener("click", ensureWorkspaceStorage);
+  const settingsOpenWorkspace = $("#settingsOpenWorkspace");
+  if (settingsOpenWorkspace) {
+    settingsOpenWorkspace.addEventListener("click", async () => {
+      try {
+        const res = await vt.setup.openDir();
+        if (res?.dir) showToast("Workspace folder opened", { variant: "info", meta: res.dir });
+        setStatus("Workspace folder opened.", 2600);
+      } catch (err) {
+        console.error(err);
+        setStatus("Unable to open workspace folder.", 3200);
+        showToast("Open folder failed", { variant: "error", meta: err?.message || String(err) });
+      }
+    });
+  }
+  $$(".settings-paths button[data-copy-path]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const targetId = btn.dataset.copyPath;
+      if (!targetId) return;
+      const target = document.getElementById(targetId);
+      const text = target?.textContent?.trim();
+      if (!text || text === "--") {
+        setStatus("Path not available yet.", 2400);
+        return;
+      }
+      if (!navigator.clipboard?.writeText) {
+        setStatus("Clipboard access unavailable.", 2400);
+        return;
+      }
+      navigator.clipboard.writeText(text).then(() => setStatus("Path copied to clipboard.", 2400)).catch((err) => {
+        console.error("Copy failed:", err);
+        setStatus("Could not copy path.", 2400);
+      });
+    });
+  });
 
   // Token dialog
   $("#tokenSave").addEventListener("click", saveToken);
@@ -3010,8 +3276,11 @@ function initBlank(){
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  loadSettingsPreferences();
+  applySettingsPreferences({ skipSave: true });
   bind();
   initBlank();
+  refreshSettingsSnapshot();
   setUpdateStatus(updateState.status);
   await loadOnboardingPreferences();
   await refreshOnboardingStatus({ includeVerify: false });
@@ -3020,6 +3289,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
   try {
     const { token } = await vt.token.get();
-    if (token) fetchFromGitHub();
+    if (token && settingsPrefs.autoFetchOnLaunch !== false) fetchFromGitHub();
   } catch {}
 });

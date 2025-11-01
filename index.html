@@ -405,44 +405,200 @@
 
       <!-- Settings Tab -->
       <div id="tab-settings" class="tabpage">
-        <div class="notice notice-muted" data-icon="S">
+        <div class="notice notice-muted tips-optional" data-icon="S">
           <strong>Workspace settings</strong>
-          <p>Configure repository access, token storage, and appearance preferences to match your manifest workflow.</p>
+          <p>Configure repository access, token storage, automation, and appearance so the editor fits your release workflow.</p>
         </div>
-        <div class="card settings-card">
-          <div class="card-title">GitHub Workspace</div>
-          <p class="card-subtitle">Configure the repository and personal access token used when fetching or committing your <code>repoversion.json</code>.</p>
-          <div class="settings-grid">
-            <label class="field"><span>Owner</span><input id="cfgOwner" type="text" value="skillerious"></label>
-            <label class="field"><span>Repo</span><input id="cfgRepo" type="text" value="Version-Tracker"></label>
-            <label class="field"><span>Branch</span><input id="cfgBranch" type="text" value="main"></label>
-            <label class="field"><span>Path</span><input id="cfgPath" type="text" value="repoversion.json"></label>
+
+        <div class="settings-layout">
+          <div class="settings-column">
+            <div class="card settings-card settings-card-overview">
+              <div class="card-title">Connection overview</div>
+              <p class="card-subtitle tips-optional">Snapshot of the GitHub workspace Version Tracker will read and publish to.</p>
+              <div class="settings-overview-grid">
+                <div class="overview-tile">
+                  <span class="overview-label">Repository</span>
+                  <strong id="settingsSummaryRepo">--</strong>
+                  <span id="settingsSummaryRepoMeta" class="overview-meta tips-optional">Owner &amp; repository</span>
+                </div>
+                <div class="overview-tile">
+                  <span class="overview-label">Branch</span>
+                  <strong id="settingsSummaryBranch">--</strong>
+                  <span class="overview-meta tips-optional">Default publication branch</span>
+                </div>
+                <div class="overview-tile">
+                  <span class="overview-label">Manifest path</span>
+                  <strong id="settingsSummaryPath">--</strong>
+                  <span class="overview-meta tips-optional">JSON tracked by this editor</span>
+                </div>
+                <div class="overview-tile">
+                  <span class="overview-label">Token</span>
+                  <span class="status-chip" id="settingsTokenBadge" data-state="warn">No token stored</span>
+                  <span id="settingsTokenSource" class="overview-meta tips-optional">Store a token to enable commits.</span>
+                </div>
+                <div class="overview-tile">
+                  <span class="overview-label">Verification</span>
+                  <strong id="settingsSummaryVerified">Not verified</strong>
+                  <span id="settingsSummaryVerifiedMeta" class="overview-meta tips-optional">Run verification to confirm scopes.</span>
+                </div>
+                <div class="overview-tile">
+                  <span class="overview-label">Manifest SHA</span>
+                  <strong id="settingsSummarySha">--</strong>
+                  <span class="overview-meta tips-optional">Short hash of the last fetched manifest</span>
+                </div>
+              </div>
+              <div class="settings-overview-actions">
+                <button id="settingsRefresh" class="ghost subtle">Refresh status</button>
+                <button id="settingsOpenRepo" class="ghost">Open repository</button>
+              </div>
+            </div>
+
+            <div class="card settings-card">
+              <div class="card-title">GitHub workspace</div>
+              <p class="card-subtitle tips-optional">Update the repository target used when fetching and committing <code>repoversion.json</code>.</p>
+              <div class="settings-section">
+                <h4 class="settings-section-title">Repository target</h4>
+                <div class="settings-grid">
+                  <label class="field"><span>Owner</span><input id="cfgOwner" type="text" value="skillerious"></label>
+                  <label class="field"><span>Repo</span><input id="cfgRepo" type="text" value="Version-Tracker"></label>
+                  <label class="field"><span>Branch</span><input id="cfgBranch" type="text" value="main"></label>
+                  <label class="field"><span>Manifest path</span><input id="cfgPath" type="text" value="repoversion.json"></label>
+                </div>
+              </div>
+              <div class="settings-section tips-optional">
+                <div class="notice notice-info" data-icon="i">
+                  <strong>Token requirements</strong>
+                  <p>Tokens should include <strong>Contents: read/write</strong>. After updating credentials, use <em>Verify token</em> to confirm scopes and satisfy any SSO prompts.</p>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button id="btnCfgApply" class="ok">Apply repo settings</button>
+              </div>
+            </div>
+
+            <div class="card settings-card">
+              <div class="card-title">Token &amp; access</div>
+              <p class="card-subtitle tips-optional">Monitor stored credentials and the scopes GitHub reported during the last verification.</p>
+              <div class="settings-status-row">
+                <span class="status-chip" id="settingsTokenStatus" data-state="warn">No token stored</span>
+                <span id="settingsTokenStatusMeta" class="muted tips-optional">Ready to connect once a token is stored.</span>
+              </div>
+              <div class="settings-grid settings-grid-compact">
+                <div class="settings-tile">
+                  <span class="settings-tile-label">Stored via</span>
+                  <strong id="settingsTokenStoredVia">--</strong>
+                  <span id="settingsTokenStoredMeta" class="settings-tile-meta tips-optional">Secure storage location</span>
+                </div>
+                <div class="settings-tile">
+                  <span class="settings-tile-label">Account</span>
+                  <strong id="settingsTokenAccount">--</strong>
+                  <span id="settingsTokenAccountMeta" class="settings-tile-meta tips-optional">Name &amp; type</span>
+                </div>
+                <div class="settings-tile">
+                  <span class="settings-tile-label">Last verified</span>
+                  <strong id="settingsTokenVerified">Never</strong>
+                  <span id="settingsTokenVerifiedMeta" class="settings-tile-meta tips-optional">Run verification to refresh details</span>
+                </div>
+              </div>
+              <div class="settings-token-scopes">
+                <span class="settings-tile-label tips-optional">Scopes</span>
+                <div id="settingsTokenScopes" class="settings-token-scopes-list">None reported</div>
+              </div>
+              <div class="settings-actions">
+                <div class="settings-actions-right">
+                  <button id="btnTokenSettings">Set token…</button>
+                  <button id="btnTokenVerify" class="ghost">Verify token</button>
+                  <button id="settingsViewTokenDocs" class="ghost subtle">Token docs</button>
+                </div>
+              </div>
+            </div>
           </div>
-            <div class="notice notice-info" data-icon="i">
-              <strong>Token requirements</strong>
-              <p>Tokens should include <strong>Contents: read/write</strong>. After updating credentials, use <em>Verify Token</em> to confirm scopes and any SSO prompts.</p>
+
+          <div class="settings-column secondary">
+            <div class="card settings-card">
+              <div class="card-title">Workspace preferences</div>
+              <p class="card-subtitle tips-optional">Tailor automation and UI behaviour to match how you publish releases.</p>
+              <div class="settings-toggle-list">
+                <button type="button" class="settings-toggle" data-pref="autoFetchOnLaunch" aria-pressed="false">
+                  <span class="toggle-indicator" aria-hidden="true"></span>
+                  <span class="toggle-label">
+                    <strong>Auto fetch on launch</strong>
+                    <span class="toggle-meta tips-optional">Grab the latest manifest as soon as the app opens.</span>
+                  </span>
+                  <span class="settings-toggle-state" aria-hidden="true">Off</span>
+                </button>
+                <button type="button" class="settings-toggle" data-pref="confirmBeforeCommit" aria-pressed="false">
+                  <span class="toggle-indicator" aria-hidden="true"></span>
+                  <span class="toggle-label">
+                    <strong>Confirm before committing</strong>
+                    <span class="toggle-meta tips-optional">Show a quick confirmation before pushing changes to GitHub.</span>
+                  </span>
+                  <span class="settings-toggle-state" aria-hidden="true">Off</span>
+                </button>
+                <button type="button" class="settings-toggle" data-pref="compactDensity" aria-pressed="false">
+                  <span class="toggle-indicator" aria-hidden="true"></span>
+                  <span class="toggle-label">
+                    <strong>Compact density</strong>
+                    <span class="toggle-meta tips-optional">Reduce padding in lists and tables for large manifests.</span>
+                  </span>
+                  <span class="settings-toggle-state" aria-hidden="true">Off</span>
+                </button>
+                <button type="button" class="settings-toggle" data-pref="showHelperTips" aria-pressed="false">
+                  <span class="toggle-indicator" aria-hidden="true"></span>
+                  <span class="toggle-label">
+                    <strong>Show helper tips</strong>
+                    <span class="toggle-meta tips-optional">Display onboarding notices and contextual hints.</span>
+                  </span>
+                  <span class="settings-toggle-state" aria-hidden="true">Off</span>
+                </button>
+              </div>
             </div>
-          <div class="settings-actions">
-            <button id="btnCfgApply" class="ok">Apply Repo Settings</button>
-            <div class="settings-actions-right">
-              <button id="btnTokenSettings">Set Token...</button>
-              <button id="btnTokenVerify" class="ghost">Verify Token</button>
-              <button id="btnOpenRepo" class="ghost">Open Repo on GitHub</button>
-            </div>
-          </div>
-        </div>
-        <div class="card settings-card">
-          <div class="card-title">Workspace Appearance</div>
-          <p class="card-subtitle">Adjust layout density to better fit large catalogs or compact displays.</p>
-          <div class="settings-grid settings-grid-compact">
-            <div class="settings-tile">
-              <h4>Density</h4>
-              <p class="muted">Switch between roomy and space-efficient layouts without leaving your flow.</p>
-              <button id="btnCompact">Toggle Compact Density</button>
-            </div>
-            <div class="settings-tile">
-              <h4>Tips</h4>
-              <p class="muted">Breadcrumbs, toolbar buttons, and status messages highlight helpful shortcuts as you work.</p>
+
+            <div class="card settings-card">
+              <div class="card-title">Workspace storage</div>
+              <p class="card-subtitle tips-optional">Review where manifests and metadata are stored on disk.</p>
+              <div class="settings-paths">
+                <div class="settings-path-row">
+                  <div class="settings-path-info">
+                    <span class="path-label">Workspace folder</span>
+                    <code id="settingsPathWorkspace">--</code>
+                  </div>
+                  <div class="settings-path-actions">
+                    <button type="button" class="ghost subtle" data-copy-path="settingsPathWorkspace">Copy</button>
+                    <button type="button" class="ghost subtle" id="settingsOpenWorkspace">Open</button>
+                  </div>
+                </div>
+                <div class="settings-path-row">
+                  <div class="settings-path-info">
+                    <span class="path-label">Settings JSON</span>
+                    <code id="settingsPathSettings">--</code>
+                  </div>
+                  <div class="settings-path-actions">
+                    <button type="button" class="ghost subtle" data-copy-path="settingsPathSettings">Copy</button>
+                  </div>
+                </div>
+                <div class="settings-path-row">
+                  <div class="settings-path-info">
+                    <span class="path-label">Token metadata</span>
+                    <code id="settingsPathToken">--</code>
+                  </div>
+                  <div class="settings-path-actions">
+                    <button type="button" class="ghost subtle" data-copy-path="settingsPathToken">Copy</button>
+                  </div>
+                </div>
+                <div class="settings-path-row">
+                  <div class="settings-path-info">
+                    <span class="path-label">Electron store</span>
+                    <code id="settingsPathStore">--</code>
+                  </div>
+                  <div class="settings-path-actions">
+                    <button type="button" class="ghost subtle" data-copy-path="settingsPathStore">Copy</button>
+                  </div>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button id="settingsEnsureWorkspace" class="ghost">Prepare workspace</button>
+              </div>
             </div>
           </div>
         </div>

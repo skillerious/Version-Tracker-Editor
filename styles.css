@@ -669,6 +669,281 @@ code{
 .settings-grid-compact{
   grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));
 }
+.settings-layout{
+  display:grid;
+  gap:18px;
+  grid-template-columns:minmax(320px, 1.1fr) minmax(260px, 0.9fr);
+  align-items:start;
+}
+.settings-column{
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+}
+.settings-column.secondary{
+  gap:16px;
+}
+.settings-card-overview .card-title{
+  margin-bottom:8px;
+}
+.settings-overview-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+  gap:12px;
+}
+.overview-tile{
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:12px;
+  padding:12px 14px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  min-height:88px;
+  box-shadow:0 12px 28px rgba(5,10,18,.35);
+}
+.overview-label{
+  font-size:11px;
+  letter-spacing:.42px;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.overview-meta{
+  font-size:11.5px;
+  color:var(--muted);
+}
+.status-chip{
+  align-self:flex-start;
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:999px;
+  font-size:11px;
+  letter-spacing:.4px;
+  text-transform:uppercase;
+  border:1px solid rgba(255,255,255,.12);
+  background:rgba(255,255,255,.08);
+  color:rgba(220,233,255,.9);
+}
+.status-chip[data-state="ok"]{
+  background:rgba(65,210,144,.18);
+  border-color:rgba(65,210,144,.38);
+  color:#dffbea;
+}
+.status-chip[data-state="warn"]{
+  background:rgba(239,170,88,.18);
+  border-color:rgba(239,170,88,.38);
+  color:#ffe8c7;
+}
+.status-chip[data-state="error"]{
+  background:rgba(239,88,88,.2);
+  border-color:rgba(239,88,88,.42);
+  color:#ffe4e4;
+}
+.settings-overview-actions{
+  display:flex;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-top:6px;
+}
+.settings-section{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+.settings-section-title{
+  margin:0;
+  font-size:12.5px;
+  letter-spacing:.45px;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.settings-status-row{
+  display:flex;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+}
+.settings-tile{
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:12px;
+  padding:12px 14px;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  box-shadow:0 12px 28px rgba(5,10,18,.35);
+}
+.settings-tile-label{
+  font-size:11px;
+  letter-spacing:.42px;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.settings-tile-meta{
+  font-size:11.5px;
+  color:var(--muted);
+}
+.settings-token-scopes{
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+}
+.settings-token-scopes-list{
+  display:flex;
+  flex-wrap:wrap;
+  gap:6px;
+  font-size:11.5px;
+}
+.settings-token-scopes-list code{
+  font-family:"Cascadia Code","Consolas","Source Code Pro",monospace;
+  font-size:11px;
+  padding:4px 8px;
+  border-radius:10px;
+  background:rgba(255,255,255,.08);
+  color:#f6fbff;
+}
+.settings-toggle-list{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.settings-toggle{
+  border:1px solid rgba(255,255,255,.1);
+  background:rgba(255,255,255,.05);
+  border-radius:14px;
+  padding:12px 14px;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  cursor:pointer;
+  text-align:left;
+  box-shadow:0 12px 26px rgba(5,12,22,.32);
+  transition:background .2s ease, border-color .2s ease, box-shadow .2s ease;
+}
+.settings-toggle:hover{
+  border-color:rgba(92,225,255,.28);
+  box-shadow:0 16px 30px rgba(8,20,32,.38);
+}
+.settings-toggle[data-state="on"]{
+  background:rgba(45,212,191,.14);
+  border-color:rgba(45,212,191,.38);
+}
+.settings-toggle[data-state="on"] .toggle-indicator{
+  background:var(--accent2);
+  border-color:rgba(45,212,191,.6);
+}
+.settings-toggle[data-state="off"] .toggle-indicator{
+  background:rgba(214,222,239,.18);
+  border-color:rgba(214,222,239,.32);
+}
+.toggle-indicator{
+  width:28px;
+  height:28px;
+  border-radius:999px;
+  border:2px solid rgba(214,222,239,.28);
+  background:rgba(214,222,239,.12);
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  transition:background .2s ease, border-color .2s ease;
+  position:relative;
+}
+.toggle-indicator::after{
+  content:"";
+  width:10px;
+  height:10px;
+  border-radius:50%;
+  background:rgba(255,255,255,.85);
+  opacity:.7;
+  transition:opacity .2s ease, transform .2s ease;
+}
+.settings-toggle[data-state="off"] .toggle-indicator::after{
+  opacity:.2;
+}
+.toggle-label{
+  display:flex;
+  flex-direction:column;
+  gap:4px;
+  flex:1;
+}
+.toggle-label strong{
+  font-size:13px;
+  color:var(--text);
+}
+.toggle-meta{
+  font-size:12px;
+  color:var(--muted);
+}
+.settings-toggle-state{
+  font-size:11px;
+  letter-spacing:.35px;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.settings-paths{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+.settings-path-row{
+  display:flex;
+  gap:12px;
+  border:1px solid rgba(255,255,255,.08);
+  border-radius:12px;
+  padding:12px 14px;
+  background:rgba(255,255,255,.04);
+  box-shadow:0 12px 24px rgba(5,12,22,.28);
+  justify-content:space-between;
+  align-items:flex-start;
+}
+.settings-path-info{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+  max-width:100%;
+}
+.path-label{
+  font-size:11px;
+  letter-spacing:.42px;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.settings-path-info code{
+  font-family:"Cascadia Code","Consolas","Source Code Pro",monospace;
+  font-size:11px;
+  color:var(--text);
+  background:rgba(255,255,255,.05);
+  border-radius:8px;
+  padding:4px 8px;
+  word-break:break-all;
+}
+.settings-path-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap;
+}
+.tips-hidden .tips-optional{
+  display:none !important;
+}
+@media (max-width: 1180px){
+  .settings-layout{
+    grid-template-columns:1fr;
+  }
+}
+@media (max-width: 720px){
+  .settings-path-row{
+    flex-direction:column;
+    align-items:flex-start;
+  }
+  .settings-overview-actions{
+    flex-direction:column;
+    align-items:stretch;
+  }
+}
 .notice{
   --notice-bg:rgba(255,255,255,.05);
   --notice-border:rgba(255,255,255,.08);
