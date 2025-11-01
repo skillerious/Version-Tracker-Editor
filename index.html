@@ -29,6 +29,15 @@
       <span id="repoLabel" class="tb-repo muted">skillerious/Version-Tracker@main</span>
     </div>
     <div class="tb-right no-drag">
+      <button id="btnUpdate" class="tb-btn tb-btn-update" data-state="available" title="Update available" aria-label="Update available">
+        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="7.5" fill="none"></circle>
+          <path d="M12 7v7.5" fill="none"></path>
+          <path d="M8.75 11.75 12 15l3.25-3.25" fill="none"></path>
+          <path d="M8.5 17h7" fill="none"></path>
+        </svg>
+        <span class="update-badge" aria-hidden="true"></span>
+      </button>
       <button id="winMin" class="tb-btn tb-btn-min" title="Minimize" aria-label="Minimize"><span aria-hidden="true"></span></button>
       <button id="winMax" class="tb-btn tb-btn-max" title="Maximize" aria-label="Maximize"><span aria-hidden="true"></span></button>
       <button id="winClose" class="tb-btn tb-btn-close" title="Close" aria-label="Close"><span aria-hidden="true"></span></button>
@@ -64,7 +73,7 @@
   <nav id="activity">
     <div class="activity-top">
       <button data-tab="tab-editor" title="Editor"><img src="assets/ic-identity.svg" alt="Editor"></button>
-      <button data-tab="tab-wizard" title="Wizard"><img src="assets/ic-wand.svg" alt="Wizard"></button>
+      <button data-tab="tab-wizard" title="Create new application"><img src="assets/ic-create.svg" alt="Create new application"></button>
       <button data-tab="tab-preview" title="Preview"><img src="assets/ic-files.svg" alt="Preview"></button>
       <button data-tab="tab-calendar" title="Calendar"><img src="assets/ic-calendar.svg" alt="Calendar"></button>
     </div>
@@ -218,7 +227,7 @@
                 </table>
               </div>
               <div class="row gap">
-                <button id="btnHistAdd" class="ghost"><img src="assets/ic-wand.svg" alt=""/>Add entry</button>
+                <button id="btnHistAdd" class="ghost"><img src="assets/ic-create.svg" alt=""/>Add entry</button>
                 <button id="btnHistRemove" class="ghost danger"><img src="assets/ic-beta.svg" alt=""/>Remove selected</button>
               </div>
             </div>
@@ -544,19 +553,23 @@
       <nav class="onboarding-nav" role="tablist" aria-label="Onboarding steps">
         <button type="button" role="tab" aria-controls="onboardPanelRepo" aria-selected="true" data-step="repo" data-state="pending" data-index="1" data-title="Repository target" data-helper="Owner / repo / branch" data-current="1">
           <span class="nav-label"><strong>Repository</strong><span>Owner / repo / branch</span></span>
-          <span class="nav-badge">1</span>
+          <span class="nav-badge" aria-hidden="true"><span class="nav-badge-icon">+</span></span>
+          <span class="nav-state sr-only">Repository step: Pending setup</span>
         </button>
         <button type="button" role="tab" aria-controls="onboardPanelToken" aria-selected="false" data-step="token" data-state="pending" data-index="2" data-title="Store a token" data-helper="Secure PAT storage" data-current="0">
           <span class="nav-label"><strong>Token</strong><span>Secure PAT storage</span></span>
-          <span class="nav-badge">2</span>
+          <span class="nav-badge" aria-hidden="true"><span class="nav-badge-icon">+</span></span>
+          <span class="nav-state sr-only">Token step: Token not stored</span>
         </button>
         <button type="button" role="tab" aria-controls="onboardPanelVerify" aria-selected="false" data-step="verify" data-state="pending" data-index="3" data-title="Verify access" data-helper="Scopes &amp; account" data-current="0">
           <span class="nav-label"><strong>Verify</strong><span>Scopes &amp; account</span></span>
-          <span class="nav-badge">3</span>
+          <span class="nav-badge" aria-hidden="true"><span class="nav-badge-icon">+</span></span>
+          <span class="nav-state sr-only">Verify step: Not checked</span>
         </button>
         <button type="button" role="tab" aria-controls="onboardPanelData" aria-selected="false" data-step="data" data-state="pending" data-index="4" data-title="Workspace storage" data-helper="AppData setup" data-current="0">
           <span class="nav-label"><strong>Workspace</strong><span>AppData setup</span></span>
-          <span class="nav-badge">4</span>
+          <span class="nav-badge" aria-hidden="true"><span class="nav-badge-icon">+</span></span>
+          <span class="nav-state sr-only">Workspace step: Workspace not prepared</span>
         </button>
       </nav>
       <section class="onboarding-panel" id="onboardPanelRepo" role="tabpanel" data-step="repo" aria-labelledby="onboardPanelRepoTitle" tabindex="0" aria-hidden="false">
@@ -642,6 +655,63 @@
         <button id="onboardRefresh" type="button" class="ghost subtle">Refresh status</button>
         <button id="onboardClose" type="button" class="ghost">Close</button>
         <button id="onboardFinish" type="button" class="ok">Start editing</button>
+      </div>
+    </footer>
+  </dialog>
+
+  <!-- Application update dialog -->
+  <dialog id="updateDialog" class="dialog-card update-dialog" aria-labelledby="updateDialogTitle" aria-describedby="updateDialogLead">
+    <header id="updateDialogHeader" class="update-header" data-state="available">
+      <div class="update-header-icon" aria-hidden="true">
+        <svg class="update-download-icon" viewBox="0 0 48 48" role="presentation" focusable="false">
+          <circle cx="24" cy="24" r="15.5" stroke="currentColor" stroke-width="2" fill="none" opacity=".5"></circle>
+          <path d="M24 11v18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"></path>
+          <path d="M17.5 24.5 24 31l6.5-6.5" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"></path>
+          <path d="M16 35h16" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".7"></path>
+        </svg>
+      </div>
+      <div class="update-header-copy">
+        <span class="update-status-chip" data-state="available" id="updateDialogStatus">Update available</span>
+        <h3 id="updateDialogTitle">A fresh build is ready</h3>
+        <p id="updateDialogLead">Download the latest Version Tracker release to get new features and fixes.</p>
+      </div>
+    </header>
+    <div class="update-body">
+      <section class="update-section">
+        <h4>Version overview</h4>
+        <div class="update-grid">
+          <div class="update-tile">
+            <span class="update-tile-label">Current version</span>
+            <strong id="updateCurrentVersion">v1.0.0</strong>
+            <span class="update-tile-meta">Installed locally</span>
+          </div>
+          <div class="update-tile is-accent">
+            <span class="update-tile-label">Available version</span>
+            <strong id="updateAvailableVersion">v1.2.0</strong>
+            <span class="update-tile-meta">Released 3 days ago</span>
+          </div>
+        </div>
+      </section>
+      <section class="update-section">
+        <h4>Release highlights</h4>
+        <div class="update-notes" id="updateReleaseNotes">
+          <p class="update-notes-intro">We’ll pull in release notes once an update check runs.</p>
+          <ul>
+            <li>Smarter manifest validation with clearer errors.</li>
+            <li>Timeline improvements for undated releases.</li>
+            <li>Performance and stability refinements.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+    <footer class="update-footer">
+      <div class="update-footer-left">
+        <button type="button" class="ghost subtle" id="updateSkip">Remind me later</button>
+        <button type="button" class="ghost subtle" id="updateCheck">Check again</button>
+      </div>
+      <div class="update-footer-right">
+        <button type="button" class="ghost" id="updateViewRelease">View release page</button>
+        <button type="button" class="ok" id="updateDownload">Download update</button>
       </div>
     </footer>
   </dialog>

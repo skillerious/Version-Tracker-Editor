@@ -56,10 +56,10 @@ const ONBOARDING_STEP_TITLES = {
   data: "Workspace storage"
 };
 const ONBOARDING_STATUS_ICONS = {
-  pending: "-",
-  progress: ">",
-  done: "*",
-  error: "!"
+  pending: `<svg viewBox="0 0 16 16" fill="none" role="presentation" focusable="false"><circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5" opacity=".9"></circle><path d="M8 4.5v7M4.5 8h7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg>`,
+  progress: `<svg viewBox="0 0 16 16" fill="none" role="presentation" focusable="false"><circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5" opacity=".55"></circle><path d="M8 4.25a.75.75 0 0 1 .53.22l2.6 2.6a.75.75 0 0 1 0 1.06l-2.6 2.6a.75.75 0 0 1-1.28-.53V8.81a3.56 3.56 0 0 0-1.85 1.01.75.75 0 0 1-1.06-1.06A5.06 5.06 0 0 1 7.67 7.3V5a.75.75 0 0 1 .33-.62.75.75 0 0 1 .46-.13Z" fill="currentColor"></path></svg>`,
+  done: `<svg viewBox="0 0 16 16" fill="none" role="presentation" focusable="false"><circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5" opacity=".85"></circle><path d="M5.1 8.25 7.1 10.2 10.9 6.4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"></path></svg>`,
+  error: `<svg viewBox="0 0 16 16" fill="none" role="presentation" focusable="false"><circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5" opacity=".85"></circle><path d="M8 5v3.6m0 2.4h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"></path></svg>`
 };
 const onboarding = {
   tokenInfo: null,
@@ -99,6 +99,59 @@ function setStatus(msg, ms=3000){
     setStatus._tag = tag;
     setTimeout(() => { if (setStatus._tag === tag) $("#sbText").textContent = "Ready."; }, ms);
   }
+}
+const UPDATE_STATUS_META = {
+  pending: { tooltip: "Update status pending", chip: "Status pending" },
+  checking: { tooltip: "Checking for updates…", chip: "Checking updates" },
+  available: { tooltip: "Update available", chip: "Update available" },
+  current: { tooltip: "Up to date", chip: "Up to date" },
+  error: { tooltip: "Update check failed", chip: "Check failed" }
+};
+const UPDATE_STATUS_COPY = {
+  pending: { title: "Checking update status", lead: "We’ll let you know once we’ve fetched release information." },
+  checking: { title: "Checking for updates…", lead: "Hang tight while we contact GitHub for the latest release." },
+  available: { title: "A fresh build is ready", lead: "Download the latest Version Tracker release to get new features and fixes." },
+  current: { title: "You’re up to date", lead: "You’re running the latest Version Tracker build." },
+  error: { title: "Update check failed", lead: "We couldn’t reach the update service. Try again shortly." }
+};
+const updateState = { status: "available" };
+function setUpdateStatus(status = "pending", overrides = {}) {
+  const normalized = UPDATE_STATUS_META[status] ? status : "pending";
+  updateState.status = normalized;
+  const meta = UPDATE_STATUS_META[normalized] || {};
+  const copy = UPDATE_STATUS_COPY[normalized] || {};
+  const tooltip = overrides.tooltip || meta.tooltip || "Check for updates";
+  const chipText = overrides.chip || meta.chip || "Update status";
+  const titleText = overrides.title || copy.title || "Version Tracker updates";
+  const leadText = overrides.lead || copy.lead || "";
+
+  const btn = $("#btnUpdate");
+  if (btn) {
+    btn.dataset.state = normalized;
+    btn.title = tooltip;
+    btn.setAttribute("aria-label", tooltip);
+  }
+  const header = $("#updateDialogHeader");
+  if (header) header.dataset.state = normalized;
+  const chip = $("#updateDialogStatus");
+  if (chip) {
+    chip.dataset.state = normalized;
+    chip.textContent = chipText;
+  }
+  const titleEl = $("#updateDialogTitle");
+  if (titleEl) titleEl.textContent = titleText;
+  const leadEl = $("#updateDialogLead");
+  if (leadEl) leadEl.textContent = leadText;
+}
+function openUpdateDialog(){
+  const dlg = $("#updateDialog");
+  if (!dlg) return;
+  setUpdateStatus(updateState.status);
+  if (!dlg.open) dlg.showModal();
+}
+function closeUpdateDialog(){
+  const dlg = $("#updateDialog");
+  if (dlg?.open) dlg.close();
 }
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -614,6 +667,13 @@ async function updateMaxBtn() {
   } catch {}
 }
 function bindTitlebar() {
+  const updateBtn = $("#btnUpdate");
+  if (updateBtn) {
+    updateBtn.addEventListener("click", () => {
+      if (updateBtn.dataset.state === "checking") return;
+      openUpdateDialog();
+    });
+  }
   $("#winMin").addEventListener("click", () => vt.win.minimize());
   $("#winMax").addEventListener("click", async () => { await vt.win.maximizeToggle(); updateMaxBtn(); });
   $("#winClose").addEventListener("click", () => vt.win.close());
@@ -1227,6 +1287,10 @@ function selectApp(idx){
   }
   if (state.currentIndex != null && state.formDirty) applyFormToApp(state.currentIndex);
 
+  if (state.tab !== "tab-editor") {
+    switchTab("tab-editor");
+  }
+
   state.currentIndex = idx;
   populateForm(state.data.apps[idx]);
   renderApps({ skipReveal: false });
@@ -1629,9 +1693,13 @@ function getOnboardingStepIndex(step){
   const idx = ONBOARDING_STEPS.indexOf(step);
   return idx === -1 ? 0 : idx;
 }
+function renderStatusIconMarkup(status, fallback = ""){
+  if (status && ONBOARDING_STATUS_ICONS[status]) return ONBOARDING_STATUS_ICONS[status];
+  if (!fallback) return ONBOARDING_STATUS_ICONS.pending;
+  return `<span class="status-fallback">${escapeHtml(fallback)}</span>`;
+}
 function renderStatusPill(status, label){
-  const icon = ONBOARDING_STATUS_ICONS[status] || ONBOARDING_STATUS_ICONS.pending;
-  return `<span class="pill-icon">${escapeHtml(icon)}</span><span>${escapeHtml(label)}</span>`;
+  return `<span class="pill-icon" aria-hidden="true">${renderStatusIconMarkup(status)}</span><span class="pill-text">${escapeHtml(label)}</span>`;
 }
 function capitalizeStep(step){
   if (!step) return "";
@@ -1657,15 +1725,19 @@ function setOnboardingStepStatus(step, status, label){
     if (status) navButton.dataset.state = status;
     const badge = navButton.querySelector(".nav-badge");
     if (badge) {
-      if (state.status === "done") badge.textContent = "*";
-      else if (state.status === "error") badge.textContent = "!";
-      else if (state.status === "progress") badge.textContent = ">";
-      else badge.textContent = navButton.dataset.index || String(getOnboardingStepIndex(step) + 1);
+      const fallback = navButton.dataset.index || String(getOnboardingStepIndex(step) + 1);
+      badge.innerHTML = renderStatusIconMarkup(state.status, fallback);
+      badge.setAttribute("aria-hidden", "true");
     }
     const helper = navButton.querySelector(".nav-label span");
     if (helper) {
       const base = navButton.dataset.helper || helper.textContent || "";
       helper.textContent = state.status === "pending" ? base : state.label;
+    }
+    const sr = navButton.querySelector(".nav-state");
+    if (sr) {
+      const readableLabel = state.label || ONBOARDING_DEFAULT_LABELS[step] || "";
+      sr.textContent = `${capitalizeStep(step)} step: ${readableLabel}`;
     }
   }
 
@@ -2189,7 +2261,7 @@ function validateWizard(values){
   if (!values.id) errors[1].push("Provide an app ID.");
   if (values.id && !RX_SLUG.test(values.id)) errors[1].push("App ID must use lowercase letters, numbers, or hyphen.");
   if (values.id) {
-    const duplicateIndex = state.data.apps.findIndex((app, idx) => app.id === values.id && idx !== state.currentIndex);
+    const duplicateIndex = state.data.apps.findIndex((app) => app.id === values.id);
     if (duplicateIndex !== -1) errors[1].push(`App ID '${values.id}' already exists.`);
   }
 
@@ -2537,6 +2609,21 @@ function bind(){
     }
   });
   $("#aboutCopyDetails").addEventListener("click", copyAboutDetails);
+  const updateSkip = $("#updateSkip");
+  if (updateSkip) updateSkip.addEventListener("click", () => {
+    closeUpdateDialog();
+  });
+  const updateDownload = $("#updateDownload");
+  if (updateDownload) updateDownload.addEventListener("click", () => {
+    closeUpdateDialog();
+  });
+  const updateViewRelease = $("#updateViewRelease");
+  if (updateViewRelease) {
+    updateViewRelease.addEventListener("click", () => {
+      const url = updateViewRelease.dataset.href;
+      if (url) vt.shell.open(url);
+    });
+  }
 
   // Sidebar actions
   $("#btnAddApp").addEventListener("click", addNewApp);
@@ -2842,14 +2929,14 @@ function bind(){
     }
     const values = wizardState.lastValues || getWizardValues();
     const app = buildWizardApp(values);
-    if (state.currentIndex != null) state.data.apps[state.currentIndex] = app;
-    else { state.data.apps.push(app); state.currentIndex = state.data.apps.length - 1; }
-    renderApps();
-    populateForm(app);
+    state.data.apps.push(app);
+    state.currentIndex = state.data.apps.length - 1;
+    renderApps({ skipReveal: false });
+    populateForm(state.data.apps[state.currentIndex]);
     $("#previewBox").value = buildJSON();
     switchTab("tab-editor");
     setDirty(true);
-    setStatus("Wizard applied.", 3000);
+    setStatus("Wizard created a new application.", 3000);
     showToast("Wizard output applied", { variant: "success", meta: app.name || app.id || "New app" });
     resetWizardForm();
   });
@@ -2925,6 +3012,7 @@ function initBlank(){
 document.addEventListener("DOMContentLoaded", async () => {
   bind();
   initBlank();
+  setUpdateStatus(updateState.status);
   await loadOnboardingPreferences();
   await refreshOnboardingStatus({ includeVerify: false });
   if (!onboarding.preferences?.skipOnboarding) {

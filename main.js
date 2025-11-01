@@ -264,7 +264,15 @@ ipcMain.handle("github:getFile", async (_e, { owner, repo, branch, path: filePat
   const { token } = await getToken();
   if (!token) throw new Error("No GitHub token stored.");
   const url = `https://api.github.com/repos/${owner}/${repo}/contents/${filePath}?ref=${encodeURIComponent(branch)}`;
-  const res = await fetch(url, { headers: ghHeaders(token) });
+  let res;
+  try {
+    res = await fetch(url, { headers: ghHeaders(token) });
+  } catch (error) {
+    const code = error?.cause?.code || error?.code || "";
+    const detail = code ? ` (${code})` : "";
+    console.error("GitHub getFile network error:", error);
+    throw new Error(`Network error fetching ${owner}/${repo}/${filePath} from GitHub${detail}. Check your internet connection or DNS settings.`);
+  }
   const body = await res.text();
   if (!res.ok) throw new Error(formatGitHubError("GET", res, body));
   const js = JSON.parse(body);
@@ -282,11 +290,19 @@ ipcMain.handle("github:putFile", async (_e, { owner, repo, branch, path: filePat
     branch
   };
   if (baseSha) body.sha = baseSha;
-  const res = await fetch(url, {
-    method: "PUT",
-    headers: { ...ghHeaders(token), "Content-Type": "application/json" },
-    body: JSON.stringify(body)
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      method: "PUT",
+      headers: { ...ghHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+  } catch (error) {
+    const code = error?.cause?.code || error?.code || "";
+    const detail = code ? ` (${code})` : "";
+    console.error("GitHub putFile network error:", error);
+    throw new Error(`Network error updating ${owner}/${repo}/${filePath} on GitHub${detail}. Check your internet connection or DNS settings.`);
+  }
   const out = await res.text();
   if (!res.ok) throw new Error(formatGitHubError("PUT", res, out));
   try { return JSON.parse(out); } catch { return { raw: out }; }
