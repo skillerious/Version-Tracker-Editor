@@ -1,8 +1,15 @@
 # Version Tracker (Electron Edition)
 
-Version Tracker is a desktop editor for `repoversion.json` manifests that mirrors the workflow of Visual Studio Code while staying focused on release management. It pairs a rich, form-driven editor with GitHub integration so you can review, validate, and publish version metadata without leaving the app.
+> A focused desktop editor for `repoversion.json` manifests—built for fast, reliable release management with first-class GitHub integration.
 
-![Main workspace](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/Screenshot-2025-10-21-193013.png)
+![Electron](https://img.shields.io/badge/Electron-31.x-47848F?logo=electron&logoColor=white)
+![Node](https://img.shields.io/badge/Node.js-%E2%89%A5%2018-339933?logo=node.js&logoColor=white)
+![Platforms](https://img.shields.io/badge/Windows%20|%20macOS%20|%20Linux-Desktop-0a84ff)
+![License](https://img.shields.io/badge/License-MIT-0b7285)
+
+Version Tracker is a streamlined, form-driven editor for version manifests. It pairs a polished desktop workspace with GitHub so you can review, validate, and publish release metadata without leaving the app.
+
+---
 
 ## Table of Contents
 - [Highlights](#highlights)
@@ -22,118 +29,141 @@ Version Tracker is a desktop editor for `repoversion.json` manifests that mirror
 - [Development](#development)
 - [License](#license)
 
+---
+
 ## Highlights
-- **VS Code-inspired workspace** - Custom titlebar with hover animations, draggable breadcrumb navigation, activity bar tabs, and a resizable application list keep navigation intuitive.
-- **GitHub-first workflow** - Fetch and commit `repoversion.json` through the GitHub REST API with scoped PAT verification, descriptive error feedback, and SHA tracking.
-- **Secure token storage** - Persists your Personal Access Token with `keytar` when available, falls back to `electron-store`, and includes a Verify dialog that surfaces account, scope, and SSO details.
-- **Form-driven editing** - Edit schema-wide metadata, stable/beta tracks, and release history with validation for semver, slug formats, dates, and required URLs.
-- **Versioning helpers** - One-click version bumpers, automatic slugify, promote/clone actions between release tracks, and history builders speed up routine updates.
-- **JSON preview and validation** - Preview the generated manifest, copy it to the clipboard, save locally, or run validation checks before committing upstream.
-- **Release calendar timeline** - Visualise upcoming, recent, and stale releases across every app with filters for track types and a timeline summary.
-- **New-app wizard** - Three-step wizard scaffolds an application with IDs, versions, and download links in seconds.
-- **Status awareness** - Dirty indicator in the status bar, toast-style status messages, and keyboard shortcut hints keep the editing state obvious.
-- **Responsive and accessible design** - Compact density mode, `prefers-reduced-motion` fallbacks, focus outlines, and high-contrast cards keep the UI usable across environments.
-- **Cross-platform packaging** - Electron Builder configuration is included for producing distributable builds.
+- **Clean desktop workspace** – Custom titlebar, breadcrumb navigation, activity tabs, and a resizable app list keep everything fast and obvious.
+- **GitHub-first flow** – Fetch and commit `repoversion.json` via the GitHub REST API with scoped-PAT checks, descriptive errors, and remote SHA tracking.
+- **Secure token storage** – Uses `keytar` when available; falls back to `electron-store`. Environment overrides supported (`GITHUB_TOKEN`, `GITHUB_PERSONAL_TOKEN`).
+- **Form-driven editing** – Edit global metadata, stable/beta tracks, and release history. Helpers for semver, slugify, next build code, promote/clone actions.
+- **JSON preview & validation** – Live preview, copy/save actions, and validation rules so mistakes are caught before commit.
+- **Release calendar** – A visual timeline of upcoming, recent, and stale releases with quick filters.
+- **New-app wizard** – Three steps to scaffold an application with sensible defaults.
+- **Status awareness** – Dirty indicator, toast messages, and keyboard hints (F5 / Ctrl|Cmd+S).
+- **Responsive & accessible** – Compact density, focus outlines, high-contrast cards, and `prefers-reduced-motion` fallbacks.
+- **Cross-platform packaging** – Electron Builder config included for distributables.
+
+---
 
 ## Screenshots
-- ![Main user interface](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/Screenshot-2025-10-21-193013.png)  
-  Full editor showing the sidebar application list, editor form, and activity tabs.
-- ![About dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/Screenshot-2025-10-21-193751.png)  
-  Polished dialog summarising features and keyboard shortcuts with a quick link to the GitHub repo.
-- ![Documentation reference view](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/Screenshot-2025-10-21-193319.png)  
-  Markdown-ready guidance that can surface schema details and workflow tips directly inside the app.
-- ![Confirmation and ignore workflow](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/Screenshot-2025-10-21-193337.png)  
-  Safety prompts appear before discarding, skipping, or ignoring critical actions.
-- ![Settings and token management](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/Screenshot-2025-10-21-193026.png)  
-  Repository configuration, secure token storage, and verification tools live inside the Settings tab.
+
+> All screenshots are from the Electron Edition of Version Tracker.
+
+**Main UI**  
+![Main UI](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-10-31-234623.png)
+
+**Release calendar**  
+![Release Calendar](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-10-31-234640.png)
+
+**About dialog**  
+![About Dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-10-31-234649.png)
+
+**Token dialog**  
+![Token Dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-10-31-234707.png)
+
+**Getting started**  
+![Getting Started](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-10-31-234736.png)
+
+---
 
 ## Getting Started
+
 1. **Install prerequisites**
-   - [Node.js](https://nodejs.org/) 18 or later (Electron 31 requires a modern runtime).
-   - Windows, macOS, or Linux with desktop access. `keytar` builds native bindings, so ensure build tools are present (Xcode CLT on macOS, MSVC Build Tools on Windows, build-essential on Linux).
+   - Node.js **18+**
+   - Windows, macOS, or Linux desktop
+   - Native build tools for `keytar`:
+     - **Windows:** MSVC Build Tools
+     - **macOS:** Xcode Command Line Tools
+     - **Linux:** `build-essential`
+
 2. **Install dependencies**
    ```bash
    npm install
    ```
-3. **Launch the app**
+
+3. **Launch in dev**
    ```bash
    npm start
    ```
-   The app maximises on launch. Use the custom window buttons to restore or minimise as needed.
-4. **Package for distribution (optional)**
+   The window maximises on launch (custom window controls provided).
+
+4. **Package for distribution**
    ```bash
    npm run dist
    ```
-   Electron Builder outputs installers under the `dist/` folder.
+   Outputs installers to `dist/`.
+
+---
 
 ## Working with GitHub
-1. Open the **Settings** tab (activity bar -> Settings).
-2. Update the repository coordinates if you are not targeting the default `skillerious/Version-Tracker@main`.
-3. Click **Set Token...** to provide a GitHub Personal Access Token (PAT) with the **Contents: read/write** scope.  
-   - Tokens are stored via `keytar` when available, otherwise inside the local `electron-store`.  
-   - Environment variable fallback: if neither store contains a token, `GITHUB_TOKEN` will be used.
-4. Use **Verify Token** to confirm the token scopes, associated account, and any required SSO authorisations. Validation happens through the GitHub `/user` endpoint and reports missing scopes or SSO headers directly in the UI.
-5. **Fetch** (`F5` or toolbar -> refresh icon) retrieves `repoversion.json`, deserialises it, and populates the UI while recording the remote SHA.
-6. **Commit** (`Ctrl+S` / `Cmd+S` or toolbar -> git icon) validates the manifest, stamps a new generated timestamp, and uploads changes. Responses include detailed hints whenever GitHub rejects the request (missing scope, SSO restriction, etc.).
-7. Breadcrumbs along the titlebar provide quick navigation to the owner, repository, branch tree, and file blob on GitHub; hold `Ctrl`/`Cmd` and click to open in your default browser.
+
+1. Open **Settings** (activity bar → Settings).
+2. Set the repository (defaults to `skillerious/Version-Tracker@main`).
+3. **Set Token…** with a PAT that includes **Contents: read/write**.
+   - Stored in OS keychain via `keytar` when available; otherwise `electron-store`.
+   - If neither store holds a token, `GITHUB_TOKEN` (or `GITHUB_PERSONAL_TOKEN`) is used.
+4. **Verify Token** – Confirms account, scopes, and SSO headers via `/user`.
+5. **Fetch** (`F5`) – Retrieves and deserialises `repoversion.json` and records the remote blob SHA.
+6. **Commit** (`Ctrl+S` / `Cmd+S`) – Re-validates, stamps `generated`, and uploads with proper SHA optimistic-locking.
+
+Breadcrumbs in the title area link to owner → repo → branch → file; hold **Ctrl/Cmd** and click to open in your browser.
+
+---
 
 ## Configuration & Storage
-- **Repository settings** (owner, repo, branch, manifest path) persist via `electron-store` under your OS application data folder:  
+
+- **Repository settings** (owner, repo, branch, manifest path):  
   - Windows: `%APPDATA%/Version Tracker/config.json`  
   - macOS: `~/Library/Application Support/Version Tracker/config.json`  
   - Linux: `~/.config/Version Tracker/config.json`
-- **Tokens** are written to the OS password vault when `keytar` is available (Windows Credential Manager, macOS Keychain, GNOME Keyring/KWallet). If native bindings are unavailable, a fallback encrypted store is used inside the same config directory.
-- **Onboarding preferences** (e.g. "Skip getting started") and UI choices such as compact density live in the same store; delete the config file to reset the workspace.
-- **Local cache**: When you use "Save JSON..." the manifest is written wherever you choose; no unprompted copies are retained.
-- **Environment overrides**: Supplying `GITHUB_TOKEN` or `GITHUB_PERSONAL_TOKEN` at launch provides a token without storing it. Workspace settings respect these variables unless overridden manually.
-- **Per-device tweaks**: Sidebar width, wizard progress, and toast dismissals are stored in the renderer's `localStorage`; clear the Electron profile (or run with `--guest`) to reset them.
-- **Diagnostics**: Use the About dialog to copy runtime information, or inspect console logs from the terminal session that launched Electron for in-depth troubleshooting.
+- **Tokens:** OS keychain via `keytar`, fallback to `electron-store`.
+- **Environment overrides:** `GITHUB_TOKEN`, `GITHUB_PERSONAL_TOKEN`.
+- **UI & prefs:** Compact density, sidebar width, wizard progress, toast dismissals in `electron-store` and renderer `localStorage`.
+- **Local cache:** “Save JSON…” writes only to the chosen path—no hidden copies.
+- **Diagnostics:** About dialog includes runtime info; check the terminal running Electron for detailed logs.
+
+---
 
 ## Editing Workflow
-- **Sidebar applications**
-  - Add, duplicate, or delete apps.  
-  - Drag the sidebar edge to resize.  
-  - Hover animations highlight the active selection while respecting `prefers-reduced-motion`.
-- **Dataset card**
-  - Manage global metadata like contact information and generated timestamp (auto-updated on commit/save).
-- **App details**
-  - ID slug, display name, category, platform, architecture, tags, and description fields.
-  - Stable and optional Beta tracks with fields for semantic version, build code, release date, URLs, download links, notes, and hash data.
-  - Quick actions: auto-slugify IDs, bump version (major/minor/patch), suggest next build code, promote Beta -> Stable, clone Stable -> Beta.
-- **History management**
-  - Append or remove historic releases within a table-driven editor. Each row supports inline editing, keyboard navigation, and deletion.
-- **Preview tab**
-  - Renders the generated JSON, provides copy and save-as buttons, and runs validation to enumerate issues before publishing.
-- **Wizard tab**
-  - Guided three-step flow to scaffold new applications with recommended defaults.
-- **Settings tab**
-  - Repository, branch, file path inputs.
-  - Token dialogs (set, verify) and a toggle for compact density mode.
-- **Dialogs and confirmations**
-  - Token dialog (password-style input) and About dialog (feature summary plus shortcuts).
-  - Built-in confirmation prompts guard destructive actions like deleting apps or dismissing unsaved changes.
-- **Status bar**
-  - Dirty indicator dot (turns cyan when unsaved).
-  - Status text updates for fetch, commit, validation, clipboard copy.
-  - Shortcut hints remind you of F5 and Ctrl/Cmd+S combos.
+
+- **Sidebar apps:** Add/duplicate/delete; resize via splitter; hover highlights respect reduced-motion.
+- **Dataset card:** Global metadata & `generated` timestamp (auto-updated on commit/preview).
+- **App details:**  
+  - ID slug, name, category, platform, arch, tags, description  
+  - **Tracks:** Stable (required), Beta (optional) with `version`, `code`, `date`, `url`, `download`, `notes`
+  - Quick actions: slugify ID, bump version (major/minor/patch), suggest next build code, promote Beta→Stable, clone Stable→Beta
+- **History:** Table editor with inline editing, keyboard navigation, and deletions.
+- **Preview tab:** Renders JSON with copy/save and validation results.
+- **Wizard tab:** 3-step scaffold with guardrails.
+- **Settings tab:** Repository/branch/path, token dialogs, compact density toggle.
+- **Dialogs:** Token, About, and confirm prompts for destructive operations.
+- **Status bar:** Dirty dot, status text, and shortcut hints.
+
+---
 
 ## Release Calendar
-The **Calendar** tab surfaces every planned or historic release in a vertical timeline so you can prioritise work quickly.
 
-- Summary chips highlight how many releases are **Upcoming** (within 14 days), **Recent** (shipped within 14 days), or **Stale** (older than 60 days).
-- Filters let you toggle Stable, Beta, or History entries, and switch between *All*, *Upcoming*, or *Stale* views.
-- Each entry shows app name, track, version, build code, release date, relative timing, and quick links to release or download URLs.
-- Undated items appear with a dashed outline, reminding you to capture the ship date before publishing.
-- The timeline automatically refreshes after fetches, commits, wizard actions, or manual edits, so it always reflects the latest manifest state.
+A vertical timeline pulling from tracks and (optional) history:
+
+- **Summary chips:** **Upcoming** (≤14 days), **Recent** (≤14 days ago), **Stale** (≥60 days)
+- **Filters:** Toggle Stable/Beta/History; view **All / Upcoming / Stale**
+- **Entries:** App, track, version, code, date, relative timing, and quick links
+- **Undated:** Dashed outline with a reminder to set the ship date
+- Auto-refreshes after fetch, commit, wizard, and edits.
+
+---
 
 ## Keyboard Shortcuts
-- `F5` - Fetch the latest `repoversion.json` from GitHub.
-- `Ctrl + S` / `Cmd + S` - Commit changes back to GitHub.
-- `Ctrl + Click` (breadcrumb items) - Open GitHub links in the browser.
-- Standard editing shortcuts are respected across text inputs and tables.
+
+- `F5` – Fetch manifest
+- `Ctrl + S` / `Cmd + S` – Commit changes
+- `Ctrl + Click` / `Cmd + Click` (breadcrumbs) – Open on GitHub
+
+---
 
 ## Data Model
-`repoversion.json` follows a compact schema designed for downstream automation.
+
+`repoversion.json` is compact and automation-friendly:
 
 ```json
 {
@@ -168,64 +198,81 @@ The **Calendar** tab surfaces every planned or historic release in a vertical ti
 }
 ```
 
-- **Tracks**: Stable is required; Beta is optional and can be toggled per app. Each track may include version, numeric build code, ISO date, release URL, download URL, and freeform notes.
-- **History**: Optional chronological entries that the editor normalises (ensuring dates, codes, and URLs stay consistent). History rows are also pulled into the calendar when enabled.
-- **Generated**: Auto-updated timestamp whenever you commit or explicitly refresh the preview, useful for audit trails.
+- **Tracks:** Stable required; Beta optional. Fields: `version`, `code` (int), `date` (`YYYY-MM-DD`), `url`, `download`, `notes`.
+- **History:** Optional chronological entries; normalised and usable in the calendar.
+- **generated:** Auto-stamped on commit/preview refresh.
+
+---
 
 ## Validation Rules
-The editor performs real-time checks to catch issues before they ship.
 
-- **Identifiers**: App IDs must be lowercase slug strings (`[a-z0-9-]`) and unique across the manifest.
-- **Semantic versions**: Stable and beta versions are validated against a permissive semver regex allowing pre-release/build metadata.
-- **Dates**: Track and history dates must be in `YYYY-MM-DD` format; undated entries remain editable but are flagged in tooltips and the calendar.
-- **URLs**: Release and download fields require `http://` or `https://` prefixes.
-- **Codes**: Build codes must be whole numbers >= 0. Quick actions suggest the next code based on history.
-- **Wizard**: Blocks finishing until required fields are populated and guides you to fix errors step by step.
-- **Commit**: Before uploading, the app stamps `generated`, re-validates the manifest, and surfaces any blocking issues in toasts and the status bar.
+- **IDs:** lowercase slugs (`[a-z0-9-]`), unique across `apps`.
+- **Semver:** Permissive regex accepting pre-release/build metadata.
+- **Dates:** `YYYY-MM-DD`; undated entries remain editable but are flagged.
+- **URLs:** Must start with `http://` or `https://`.
+- **Codes:** Whole numbers `>= 0`; “next code” quick action uses history.
+- **Wizard:** Blocks finish until required fields are filled.
+- **Commit:** Stamps `generated`, re-validates, and surfaces blocking issues in toasts and status bar.
+
+---
 
 ## Troubleshooting
+
 | Scenario | Fix |
-|----------|-----|
-| **Token verification fails** | Confirm the PAT includes `Contents: read/write`, re-run **Verify Token**, and ensure SSO is approved if your org requires it. |
-| **Fetch returns 404** | Check Settings for owner/repo/branch/path typos and verify the GitHub token has access to the target repo. |
-| **Commit rejected with 409** | Another change landed first. Fetch to refresh the remote SHA, resolve conflicts locally, then commit again. |
-| **Calendar shows "No releases match"** | Enable the Stable/Beta/History filters and ensure your tracks include dates or other fields so entries are detectable. |
-| **Keytar build errors** | Install native build tooling (`npm install --global --production windows-build-tools` on Windows, Xcode CLT on macOS, `build-essential` on Linux) or fall back to the bundled electron-store. |
-| **App feels sluggish** | Toggle compact density in Settings, close unused tabs, or reduce animations via system-level `prefers-reduced-motion`. |
+|---|---|
+| **Token verification fails** | Ensure PAT has **Contents: read/write**; re-verify and approve SSO if required. |
+| **Fetch 404** | Check owner/repo/branch/path in Settings and that the PAT can access the repo. |
+| **Commit 409** | Remote changed first. Fetch to refresh SHA, resolve locally, then commit again. |
+| **Calendar shows “No releases match”** | Enable Stable/Beta/History filters and ensure entries contain enough data to render. |
+| **`keytar` build errors** | Install native build tools (see prerequisites) or rely on the fallback store. |
+| **Sluggish UI** | Enable compact density, close unused tabs, or prefer reduced motion at OS level. |
+
+---
 
 ## Roadmap
-- GitHub pull-request mode for staging manifest changes before merging to main.
-- Release kits: bundle JSON, notes, and hashes into a distributable artifact.
-- Automated URL and checksum validation jobs running in the background.
-- Multi-repo workspaces with quick switching and shared token storage.
-- Optional webhook notifications (Slack, Teams, email) on fetch/commit outcomes.
+- Pull-request mode to stage manifest changes before merging
+- Release kits: JSON + notes + hashes as a distributable artefact
+- Automated URL and checksum validation
+- Multi-repo workspaces with quick switching and shared token storage
+- Optional webhook notifications (Slack/Teams/email) on fetch/commit outcomes
+
+---
 
 ## Project Structure
-| Path | Description |
-|------|-------------|
-| `main.js` | Electron main process: window lifecycle, IPC wiring, GitHub REST calls, secure token management, file dialogs, and window controls. |
-| `preload.cjs` | Bridge that exposes whitelisted APIs (`token`, `github`, `file`, `shell`, `win`) to the renderer with `contextIsolation` enabled. |
-| `renderer.js` | SPA-style front-end logic: state management, GitHub fetch/commit orchestration, form rendering, wizard, validation, previews, and dialogs. |
-| `index.html` | Application shell with titlebar, toolbar, activity bar, and tabbed workspace layout. |
-| `styles.css` | VS Code-inspired theming, responsive grids, motion/hover treatments, and dialog styling. |
-| `assets/` | SVG/ICO iconography used across the toolbar, sidebar, and dialogs. |
-| `GHtoken*.txt` | Local convenience files (not required for production) for storing development PATs outside of keytar. |
+
+```
+.
+├─ main.js           # Electron main: window lifecycle, IPC, GitHub REST, token mgmt, dialogs
+├─ preload.cjs       # Context-isolated bridge exposing whitelisted APIs (token, github, file, shell, win)
+├─ renderer.js       # SPA logic: state, forms, wizard, validation, preview, dialogs, calendar
+├─ index.html        # App shell: titlebar, toolbar, activity bar, tabbed workspace
+├─ styles.css        # Theme, responsive grids, motion/hover, dialogs
+├─ assets/           # SVG/ICO icons used across UI
+└─ GHtoken*.txt      # (Dev only) optional local PAT files; not required in production
+```
+
+---
 
 ## Tech Stack
-- **Electron 31** for cross-platform desktop packaging.
-- **Electron Builder** for distribution (NSIS/DMG/AppImage options configurable in `package.json`).
-- **Electron Store** for persistent settings when secure keychains are unavailable.
-- **Keytar** (optional native module) for OS-level secret storage.
-- **Modern JavaScript** with ES modules, async/await, and DOM-driven UI (no frontend framework required).
-- **Marked** is bundled so Markdown documentation can be rendered directly in the UI.
+- **Electron 31** (desktop shell & packaging)
+- **Electron Builder** (NSIS/DMG/AppImage)
+- **Electron Store** (settings/prefs)
+- **Keytar** (OS keychains; optional native module)
+- **Modern JavaScript** (ESM, async/await)
+- **Marked** (render in-app Markdown docs)
+
+---
 
 ## Development
-- `npm start` launches the app in development mode with reload-on-save for renderer resources.
-- `npm run dist` packages the application using Electron Builder (outputs to `dist/`). Adjust `package.json > build` for custom targets or icons.
-- `preload.cjs` exposes a minimal, vetted API surface. Add new IPC channels here rather than importing Node modules directly in the renderer.
-- The renderer avoids frameworks to keep bundle size small. If you add dependencies, update `package.json` and confirm they work within Electron's security constraints (`contextIsolation`, `sandbox`, CSP, etc.).
-- To instrument debugging, use Chrome DevTools (`Ctrl+Shift+I` / `Cmd+Opt+I`) and the `console` output from `main.js` in the terminal.
+
+- `npm start` – Launch in development (renderer reloads on save)
+- `npm run dist` – Package with Electron Builder (artifacts in `dist/`)
+- `preload.cjs` – Add new IPC channels here; keep Node modules out of the renderer
+- Security defaults: `contextIsolation`, `sandbox`, and a tight preload surface
+
+---
 
 ## License
-Released under the MIT License (see `package.json`).  
-(c) Robin Doak - Skillerious.
+
+Released under the **MIT License**.  
+© Robin Doak — Skillerious
