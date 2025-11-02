@@ -2694,8 +2694,7 @@ function fillVerifyDetails(ctx, rows){
       if (!row.code.length) {
         strong.textContent = row.empty || "None reported";
       } else {
-        row.code.forEach((token, index) => {
-          if (index) strong.appendChild(document.createTextNode(", "));
+        row.code.forEach((token) => {
           const codeEl = document.createElement("code");
           codeEl.textContent = token;
           strong.appendChild(codeEl);
