@@ -107,12 +107,38 @@ const wizardState = {
   validation: { errors: { 1: [], 2: [], 3: [] }, warnings: [] }
 };
 const SETTINGS_PREF_KEY = "vt.settings.preferences";
-let settingsPrefs = {
-  autoFetchOnLaunch: true,
-  confirmBeforeCommit: true,
-  showHelperTips: true,
-  compactDensity: false
-};
+const SETTINGS_PREF_DEFINITIONS = Object.freeze({
+  autoFetchOnLaunch: {
+    default: true,
+    type: "boolean"
+  },
+  confirmBeforeCommit: {
+    default: true,
+    type: "boolean"
+  },
+  showHelperTips: {
+    default: true,
+    type: "boolean",
+    apply(value) {
+      if (typeof document === "undefined" || !document.body) return;
+      document.body.classList.toggle("tips-hidden", value === false);
+    }
+  },
+  compactDensity: {
+    default: false,
+    type: "boolean",
+    apply(value) {
+      if (typeof document === "undefined" || !document.body) return;
+      document.body.classList.toggle("compact", !!value);
+    }
+  }
+});
+const DEFAULT_SETTINGS_PREFS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(SETTINGS_PREF_DEFINITIONS).map(([key, def]) => [key, def.default])
+  )
+);
+let settingsPrefs = { ...DEFAULT_SETTINGS_PREFS };
 const ONBOARDING_STEPS = ["repo", "token", "verify", "data"];
 const ONBOARDING_DEFAULT_LABELS = {
   repo: "Pending setup",
@@ -958,6 +984,12 @@ const CleanupManager = {
 
 // Toast state
 const toastState = { nextId: 0 };
+const TOAST_ICONS = Object.freeze({
+  repositoryRefreshed: "assets/toastRepositoryRefreshed.png",
+  updateAvailable: "assets/toastUpdate.png",
+  commit: "assets/commit.png",
+  datasetApplied: "assets/applied.png"
+});
 const TOKEN_VERIFY_ICONS = {
   loading: `<svg viewBox="0 0 24 24" fill="none" role="presentation" focusable="false" class="spin"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2" opacity=".28"></circle><path d="M20.5 12a8.5 8.5 0 0 0-8.5-8.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>`,
   ok: `<svg viewBox="0 0 24 24" fill="none" role="presentation" focusable="false"><path d="M5.5 13.5 10 18l9-10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg>`,
@@ -1235,6 +1267,425 @@ function updateAppListItem(li, app){
   const idEl = li.querySelector(".app-id");
   if (idEl) idEl.textContent = app.id;
   li.setAttribute("aria-label", `${app.name || app.id} - ${metaEl?.textContent || ""}`);
+}
+const appContextMenuState = {
+  index: null,
+  submenu: null
+};
+function getAppWorkingCopy(index){
+  if (index == null || index < 0 || index >= state.data.apps.length) return null;
+  const source = state.data.apps[index] || {};
+  const clone = JSON.parse(JSON.stringify(source));
+  if (index !== state.currentIndex || !state.formDirty) return clone;
+  const working = { ...clone };
+  const idInput = $("#edAppId");
+  const nameInput = $("#edAppName");
+  const resolvedId = (idInput?.value?.trim() || working.id || "").trim();
+  const resolvedName = (nameInput?.value?.trim() || working.name || resolvedId).trim();
+  if (resolvedId) working.id = resolvedId;
+  if (resolvedName) working.name = resolvedName;
+  const tracks = {};
+  const stable = collectTrack("st");
+  if (stable.version || stable.code || stable.url || stable.download || stable.notes) tracks.stable = stable;
+  const betaToggle = $("#betaEnabled");
+  if (betaToggle && betaToggle.checked) {
+    const beta = collectTrack("bt");
+    if (beta.version || beta.code || beta.url || beta.download || beta.notes) tracks.beta = beta;
+  }
+  working.tracks = tracks;
+  const historyRows = collectHistoryRows().map(({ row: _row, ...rest }) => rest);
+  working.history = historyRows;
+  return working;
+}
+async function copyAppText(value, label, options = {}){
+  const preserveWhitespace = options.preserveWhitespace || false;
+  const raw = value == null ? "" : String(value);
+  const text = preserveWhitespace ? raw : raw.trim();
+  if (!text) {
+    setStatus(`${label} not available.`, 2600);
+    return false;
+  }
+  if (!navigator.clipboard?.writeText) {
+    setStatus("Clipboard access unavailable.", 2600);
+    return false;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+    if (options.silent !== true) {
+      const meta = options.meta ?? (text.length > 64 ? `${text.slice(0, 61)}...` : text);
+      setStatus(`${label} copied.`, 2400);
+      showToast(`${label} copied`, { variant: "info", meta });
+    }
+    return true;
+  } catch (err) {
+    console.error("Copy failed:", err);
+    setStatus("Copy failed.", 2600);
+    showToast("Clipboard error", { variant: "error", meta: err?.message || String(err) });
+    return false;
+  }
+}
+function setContextMenuItemDisabled(menu, selector, disabled){
+  const node = menu.querySelector(selector);
+  if (!node) return;
+  const flag = !!disabled;
+  if ("disabled" in node) node.disabled = flag;
+  node.classList.toggle("is-disabled", flag);
+  node.setAttribute("aria-disabled", flag ? "true" : "false");
+}
+function setAppContextSubmenu(id){
+  const menu = $("#appContextMenu");
+  if (!menu) return;
+  menu.querySelectorAll(".ctx-submenu").forEach((group) => {
+    const key = group.dataset.submenu || "";
+    const open = key === id && id;
+    group.dataset.open = open ? "1" : "0";
+    const trigger = group.querySelector("[data-submenu-trigger]");
+    if (trigger) trigger.setAttribute("aria-expanded", open ? "true" : "false");
+    const nested = group.querySelector(".ctx-menu-nested");
+    if (nested) {
+      nested.setAttribute("aria-hidden", open ? "false" : "true");
+      if (open) {
+        requestAnimationFrame(() => {
+          const rect = nested.getBoundingClientRect();
+          const overflowRight = rect.right > window.innerWidth - 12;
+          const overflowLeft = rect.left < 12;
+          if (overflowRight) nested.dataset.align = "left";
+          else if (overflowLeft) nested.dataset.align = "";
+          else nested.dataset.align = "";
+        });
+      } else {
+        nested.dataset.align = "";
+      }
+    }
+  });
+  appContextMenuState.submenu = id || null;
+}
+function updateAppContextMenu(){
+  const menu = $("#appContextMenu");
+  if (!menu) return;
+  const index = state.currentIndex;
+  const working = getAppWorkingCopy(index);
+  const hasApp = !!working;
+  setContextMenuItemDisabled(menu, "[data-action=\"open-wizard\"]", !hasApp);
+  setContextMenuItemDisabled(menu, "[data-action=\"duplicate\"]", !hasApp);
+  setContextMenuItemDisabled(menu, "[data-action=\"delete\"]", !hasApp);
+  setContextMenuItemDisabled(menu, "[data-action=\"promote-beta\"]", !hasTrackData(working?.tracks?.beta));
+  setContextMenuItemDisabled(menu, "[data-action=\"clone-stable\"]", !hasTrackData(working?.tracks?.stable));
+  const toggle = menu.querySelector("[data-action=\"toggle-beta\"]");
+  if (toggle) {
+    const betaToggle = $("#betaEnabled");
+    const enabled = betaToggle ? betaToggle.checked : false;
+    toggle.textContent = enabled ? "Disable beta track" : "Enable beta track";
+    toggle.dataset.mode = enabled ? "disable" : "enable";
+  }
+  const stable = working?.tracks?.stable || {};
+  setContextMenuItemDisabled(menu, "[data-action=\"copy-stable-version\"]", !(stable.version || "").trim());
+  const stableUrl = (stable.url || stable.download || "").trim();
+  setContextMenuItemDisabled(menu, "[data-action=\"copy-stable-url\"]", !stableUrl);
+  const historyList = Array.isArray(working?.history) ? working.history : [];
+  setContextMenuItemDisabled(menu, "[data-action=\"history-copy-count\"]", historyList.length === 0);
+  setContextMenuItemDisabled(menu, "[data-action=\"history-highlight-latest\"]", historyList.length === 0);
+  setContextMenuItemDisabled(menu, "[data-action=\"history-run-diagnostics\"]", !hasApp);
+  setContextMenuItemDisabled(menu, "[data-action=\"history-add-suggested\"]", !hasApp);
+  setContextMenuItemDisabled(menu, "[data-action=\"copy-id\"]", !(working?.id || "").trim());
+  setContextMenuItemDisabled(menu, "[data-action=\"copy-name\"]", !(working?.name || working?.id || "").trim());
+  setContextMenuItemDisabled(menu, "[data-action=\"copy-json\"]", !hasApp);
+  setContextMenuItemDisabled(menu, "[data-action=\"copy-history-summary\"]", historyList.length === 0);
+  setContextMenuItemDisabled(menu, "[data-action=\"preview-app\"]", !hasApp);
+}
+function positionAppContextMenu(menu, x, y){
+  if (!menu) return;
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  const rect = menu.getBoundingClientRect();
+  const maxLeft = window.innerWidth - rect.width - 12;
+  const maxTop = window.innerHeight - rect.height - 12;
+  const left = Math.max(8, Math.min(x, maxLeft));
+  const top = Math.max(8, Math.min(y, maxTop));
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+function hideAppContextMenu(){
+  const menu = $("#appContextMenu");
+  if (!menu || !menu.classList.contains("is-visible")) return;
+  menu.classList.remove("is-visible");
+  menu.setAttribute("aria-hidden", "true");
+  menu.dataset.index = "";
+  setAppContextSubmenu(null);
+  appContextMenuState.index = null;
+}
+function showAppContextMenu(index, point){
+  const menu = $("#appContextMenu");
+  if (!menu) return;
+  appContextMenuState.index = index;
+  setAppContextSubmenu(null);
+  updateAppContextMenu();
+  menu.dataset.index = String(index);
+  menu.classList.add("is-visible");
+  menu.setAttribute("aria-hidden", "false");
+  const pos = point || {};
+  positionAppContextMenu(menu, pos.x ?? 0, pos.y ?? 0);
+  const first = menu.querySelector(".ctx-item:not(:disabled)");
+  if (first) {
+    requestAnimationFrame(() => first.focus());
+  }
+}
+function highlightHistoryLatestRow(){
+  const rows = $$("#historyTable tbody tr");
+  if (!rows.length) {
+    setStatus("No history rows available.", 2400);
+    return;
+  }
+  const target = rows[0];
+  selectHistoryRow(target);
+  target.classList.add("history-row-flash");
+  target.scrollIntoView({ block: "nearest" });
+  window.setTimeout(() => target.classList.remove("history-row-flash"), 720);
+}
+const APP_CONTEXT_ACTIONS = {
+  open(){
+    if (state.currentIndex != null) {
+      revealActiveApp();
+      setStatus("App ready in editor.", 2200);
+    }
+  },
+  "open-wizard"(){
+    if (state.currentIndex == null) return;
+    const snapshot = getAppWorkingCopy(state.currentIndex);
+    if (!snapshot) return;
+    loadWizardFromApp(snapshot);
+    switchTab("tab-wizard");
+    setStatus("Loaded app into wizard.", 2600);
+  },
+  duplicate(){
+    duplicateApp();
+  },
+  delete(){
+    deleteApp();
+  },
+  "copy-id"(){
+    if (state.currentIndex == null) return;
+    const snapshot = getAppWorkingCopy(state.currentIndex);
+    copyAppText(snapshot?.id || "", "App ID");
+  },
+  "copy-name"(){
+    if (state.currentIndex == null) return;
+    const snapshot = getAppWorkingCopy(state.currentIndex);
+    copyAppText(snapshot?.name || snapshot?.id || "", "App name");
+  },
+  "copy-stable-version"(){
+    if (state.currentIndex == null) return;
+    const snapshot = getAppWorkingCopy(state.currentIndex);
+    copyAppText(snapshot?.tracks?.stable?.version || "", "Stable version");
+  },
+  "copy-stable-url"(){
+    if (state.currentIndex == null) return;
+    const snapshot = getAppWorkingCopy(state.currentIndex);
+    const stable = snapshot?.tracks?.stable || {};
+    copyAppText(stable.url || stable.download || "", "Stable link");
+  },
+  "copy-json"(){
+    if (state.currentIndex == null) return;
+    const snapshot = getAppWorkingCopy(state.currentIndex);
+    if (!snapshot) return;
+    const json = JSON.stringify(snapshot, null, 2);
+    copyAppText(json, "App JSON", { preserveWhitespace: true, meta: snapshot.name || snapshot.id || "App" });
+  },
+  "copy-history-summary"(){
+    if (state.currentIndex == null) return;
+    const snapshot = getAppWorkingCopy(state.currentIndex);
+    const entry = snapshot?.history?.[0];
+    if (!entry) {
+      setStatus("No history entries to copy.", 2400);
+      return;
+    }
+    const summaryParts = [
+      entry.version || "(no version)",
+      `code ${entry.code ?? "--"}`,
+      entry.date || "no date"
+    ];
+    if (entry.url) summaryParts.push(entry.url);
+    copyAppText(summaryParts.join(" | "), "History summary");
+  },
+  "promote-beta"(){
+    const btn = $("#btnPromote");
+    if (!btn || btn.disabled) {
+      setStatus("Beta track not available to promote.", 2600);
+      return;
+    }
+    btn.click();
+    setStatus("Beta track promoted into stable fields.", 2600);
+  },
+  "clone-stable"(){
+    const btn = $("#btnClone");
+    if (!btn || btn.disabled) {
+      setStatus("Stable track not ready to clone.", 2600);
+      return;
+    }
+    btn.click();
+    setStatus("Stable track cloned into beta fields.", 2600);
+  },
+  "toggle-beta"(){
+    const toggle = $("#betaEnabled");
+    if (!toggle) return;
+    toggle.checked = !toggle.checked;
+    toggle.dispatchEvent(new Event("change", { bubbles: true }));
+    setStatus(toggle.checked ? "Beta track enabled." : "Beta track disabled.", 2600);
+  },
+  "suggest-beta-version"(){
+    const btn = $("#btBumpBtn");
+    if (!btn) return;
+    btn.click();
+    setStatus("Suggested beta version.", 2400);
+  },
+  "suggest-beta-code"(){
+    const next = suggestTrackCode("bt");
+    updateVerPills();
+    setFormDirty(true);
+    setStatus(`Suggested beta code ${next}.`, 2400);
+  },
+  "apply-form-to-app"(){
+    const applied = applyPendingChanges({ updatePreview: false });
+    if (!applied) setStatus("No pending changes to apply.", 2400);
+  },
+  "history-add-suggested"(){
+    addHistoryRow();
+    setStatus("Suggested history entry added.", 2400);
+  },
+  "history-run-diagnostics"(){
+    scheduleHistoryDiagnostics();
+    setStatus("History diagnostics scheduled.", 2400);
+  },
+  "history-copy-count"(){
+    if (state.currentIndex == null) return;
+    const snapshot = getAppWorkingCopy(state.currentIndex);
+    const count = Array.isArray(snapshot?.history) ? snapshot.history.length : 0;
+    copyAppText(String(count), "History entry count");
+  },
+  "history-highlight-latest"(){
+    highlightHistoryLatestRow();
+  },
+  "open-calendar"(){
+    switchTab("tab-calendar");
+    setStatus("Calendar view opened.", 2400);
+  },
+  "preview-app"(){
+    const applied = applyPendingChanges({ updatePreview: true });
+    if (state.tab !== "tab-preview") switchTab("tab-preview");
+    showToast("Preview refreshed", { variant: "info", meta: applied ? "Pending form changes were applied" : "Preview synced with current dataset" });
+  }
+};
+function runAppContextAction(action){
+  const fn = APP_CONTEXT_ACTIONS[action];
+  if (!fn) return;
+  try {
+    const result = fn();
+    if (result && typeof result.then === "function") {
+      result.catch((err) => console.error("Context action failed:", err));
+    }
+  } catch (err) {
+    console.error("Context action error:", err);
+    showToast("Action failed", { variant: "error", meta: err?.message || String(err) });
+  }
+}
+function setupAppContextMenu(){
+  const menu = $("#appContextMenu");
+  const list = $("#appsList");
+  if (!menu || !list || menu.dataset.bound === "1") return;
+  menu.dataset.bound = "1";
+  list.addEventListener("contextmenu", (event) => {
+    const item = event.target.closest("li");
+    if (!item || !list.contains(item)) {
+      hideAppContextMenu();
+      return;
+    }
+    const idx = Number(item.dataset.index ?? item.dataset.appIndex);
+    if (Number.isNaN(idx)) return;
+    event.preventDefault();
+    selectApp(idx);
+    let x = event.clientX;
+    let y = event.clientY;
+    if (x === 0 && y === 0) {
+      const rect = item.getBoundingClientRect();
+      x = rect.left + rect.width / 2;
+      y = rect.top + rect.height / 2;
+    }
+    showAppContextMenu(idx, { x, y });
+  });
+  menu.addEventListener("contextmenu", (event) => event.preventDefault());
+  menu.addEventListener("pointerdown", (event) => event.stopPropagation());
+  document.addEventListener("pointerdown", (event) => {
+    if (!menu.classList.contains("is-visible")) return;
+    if (menu.contains(event.target)) return;
+    hideAppContextMenu();
+  });
+  document.addEventListener("contextmenu", (event) => {
+    if (!menu.classList.contains("is-visible")) return;
+    if (event.target.closest("#appsList li")) return;
+    hideAppContextMenu();
+  });
+  window.addEventListener("blur", hideAppContextMenu, { passive: true });
+  window.addEventListener("resize", hideAppContextMenu);
+  window.addEventListener("scroll", hideAppContextMenu, true);
+  menu.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-action]");
+    if (!button || button.disabled) return;
+    event.preventDefault();
+    const action = button.dataset.action;
+    hideAppContextMenu();
+    runAppContextAction(action);
+  });
+  menu.addEventListener("pointerover", (event) => {
+    const trigger = event.target.closest("[data-submenu-trigger]");
+    if (!trigger || trigger.disabled || !menu.contains(trigger)) return;
+    setAppContextSubmenu(trigger.dataset.submenuTrigger || "");
+  });
+  menu.addEventListener("focusin", (event) => {
+    const trigger = event.target.closest("[data-submenu-trigger]");
+    if (trigger && menu.contains(trigger)) {
+      setAppContextSubmenu(trigger.dataset.submenuTrigger || "");
+    }
+  });
+  menu.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      if (appContextMenuState.submenu) {
+        setAppContextSubmenu(null);
+        event.preventDefault();
+      } else {
+        hideAppContextMenu();
+      }
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      const trigger = event.target.closest("[data-submenu-trigger]");
+      if (!trigger) return;
+      const submenuId = trigger.dataset.submenuTrigger || "";
+      setAppContextSubmenu(submenuId);
+      const nested = menu.querySelector(`.ctx-menu-nested[data-menu="${submenuId}"]`);
+      if (nested) {
+        const first = nested.querySelector(".ctx-item:not(:disabled)");
+        if (first) {
+          first.focus();
+          event.preventDefault();
+        }
+      }
+    }
+    if (event.key === "ArrowLeft") {
+      const nested = event.target.closest(".ctx-menu-nested");
+      if (nested) {
+        const parent = nested.parentElement;
+        if (parent?.dataset?.submenu) {
+          const trigger = parent.querySelector("[data-submenu-trigger]");
+          setAppContextSubmenu(null);
+          if (trigger) trigger.focus();
+          event.preventDefault();
+        }
+      } else if (appContextMenuState.submenu) {
+        setAppContextSubmenu(null);
+        event.preventDefault();
+      }
+    }
+  });
 }
 function updateSelectedAppPill(){
   const pillEl = $("#selectedAppPill");
@@ -1732,6 +2183,7 @@ function bindSidebarResize(){
 function renderApps(options = {}){
   const ul = $("#appsList");
   if (!ul) return;
+  hideAppContextMenu();
   const existing = new Map();
   Array.from(ul.children).forEach((li) => {
     if (li.dataset.appId) existing.set(li.dataset.appId, li);
@@ -2483,7 +2935,7 @@ async function fetchFromGitHub(){
     setStatus(`Fetched repoversion.json @ ${shortSha}`, 6000);
     showToast("Repository refreshed", {
       variant: "success",
-      icon: "assets/toastRepositoryRefreshed.png",
+      icon: TOAST_ICONS.repositoryRefreshed,
       meta: shortSha ? `SHA ${shortSha}` : ""
     });
 
@@ -2613,6 +3065,7 @@ async function commitToGitHub(){
     setStatus(`Committed repoversion.json @ ${shortSha}`, 7000);
     showToast("Manifest committed to GitHub", {
       variant: "success",
+      icon: TOAST_ICONS.commit,
       meta: shortSha ? `SHA ${shortSha}` : ""
     });
 
@@ -2900,30 +3353,67 @@ function capitalizeStep(step){
   if (!step) return "";
   return step.charAt(0).toUpperCase() + step.slice(1);
 }
+function normalizeSettingsPreferences(raw){
+  const normalized = { ...DEFAULT_SETTINGS_PREFS };
+  if (!raw || typeof raw !== "object") return normalized;
+  for (const [key, def] of Object.entries(SETTINGS_PREF_DEFINITIONS)) {
+    const value = raw[key];
+    switch (def.type) {
+      case "boolean":
+        if (value === true || value === false) normalized[key] = value;
+        else if (value != null) normalized[key] = !!value;
+        break;
+      default:
+        if (value !== undefined) normalized[key] = value;
+    }
+  }
+  return normalized;
+}
 function loadSettingsPreferences(){
+  settingsPrefs = { ...DEFAULT_SETTINGS_PREFS };
   try {
     const stored = localStorage.getItem(SETTINGS_PREF_KEY);
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (parsed && typeof parsed === "object") {
-        settingsPrefs = { ...settingsPrefs, ...parsed };
-      }
-    }
+    if (!stored) return;
+    const parsed = JSON.parse(stored);
+    settingsPrefs = normalizeSettingsPreferences(parsed);
   } catch (err) {
     console.error("Failed to load settings preferences:", err);
+    settingsPrefs = { ...DEFAULT_SETTINGS_PREFS };
   }
 }
 function saveSettingsPreferences(){
   try {
-    localStorage.setItem(SETTINGS_PREF_KEY, JSON.stringify(settingsPrefs));
+    const payload = normalizeSettingsPreferences(settingsPrefs);
+    settingsPrefs = payload;
+    localStorage.setItem(SETTINGS_PREF_KEY, JSON.stringify(payload));
   } catch (err) {
     console.error("Failed to persist settings preferences:", err);
   }
 }
+function setSettingsPreference(key, value, options = {}){
+  const def = SETTINGS_PREF_DEFINITIONS[key];
+  if (!def) return false;
+  let normalizedValue = value;
+  if (typeof def.normalize === "function") normalizedValue = def.normalize(value, settingsPrefs);
+  else if (def.type === "boolean") normalizedValue = value === false ? false : !!value;
+  const previous = settingsPrefs[key];
+  if (previous === normalizedValue && !options.forceApply) return false;
+  settingsPrefs[key] = normalizedValue;
+  applySettingsPreferences({ skipSave: options.skipSave === true });
+  return previous !== normalizedValue;
+}
 function applySettingsPreferences(options = {}){
   const { skipSave = false } = options;
-  document.body.classList.toggle("compact", !!settingsPrefs.compactDensity);
-  document.body.classList.toggle("tips-hidden", settingsPrefs.showHelperTips === false);
+  settingsPrefs = normalizeSettingsPreferences(settingsPrefs);
+  for (const [key, def] of Object.entries(SETTINGS_PREF_DEFINITIONS)) {
+    if (typeof def.apply === "function") {
+      try {
+        def.apply(settingsPrefs[key], settingsPrefs);
+      } catch (err) {
+        console.error(`Failed to apply settings preference "${key}":`, err);
+      }
+    }
+  }
   updateSettingsToggleUI();
   if (!skipSave) saveSettingsPreferences();
 }
@@ -2931,7 +3421,8 @@ function updateSettingsToggleUI(){
   $$(".settings-toggle").forEach((btn) => {
     const key = btn.dataset.pref;
     if (!key) return;
-    const value = !!settingsPrefs[key];
+    const def = SETTINGS_PREF_DEFINITIONS[key];
+    const value = key in settingsPrefs ? !!settingsPrefs[key] : !!def?.default;
     btn.dataset.state = value ? "on" : "off";
     btn.setAttribute("aria-pressed", value ? "true" : "false");
     const stateLabel = btn.querySelector(".settings-toggle-state");
@@ -2957,12 +3448,23 @@ const SETTINGS_TOGGLE_MESSAGES = {
   }
 };
 function toggleSettingsPreference(key){
-  if (!(key in settingsPrefs)) return;
-  settingsPrefs[key] = !settingsPrefs[key];
-  applySettingsPreferences();
+  const def = SETTINGS_PREF_DEFINITIONS[key];
+  if (!def) return;
+  let nextValue;
+  if (def.type === "boolean") {
+    const current = key in settingsPrefs ? settingsPrefs[key] : def.default;
+    nextValue = !current;
+  } else if (typeof def.toggle === "function") {
+    nextValue = def.toggle(settingsPrefs[key], settingsPrefs);
+    if (nextValue === undefined) return;
+  } else {
+    return;
+  }
+  setSettingsPreference(key, nextValue);
   const messages = SETTINGS_TOGGLE_MESSAGES[key];
+  const value = key in settingsPrefs ? settingsPrefs[key] : def.default;
   if (messages) {
-    const variant = settingsPrefs[key] ? "on" : "off";
+    const variant = value ? "on" : "off";
     setStatus(messages[variant] || "Preference updated.", 2600);
   } else {
     setStatus("Preference updated.", 2600);
@@ -4064,11 +4566,10 @@ function bind(){
   const commitConfirmAsk = $("#commitConfirmAsk");
   if (commitConfirmAsk) {
     commitConfirmAsk.addEventListener("change", () => {
-      settingsPrefs.confirmBeforeCommit = commitConfirmAsk.checked;
-      applySettingsPreferences();
+      setSettingsPreference("confirmBeforeCommit", commitConfirmAsk.checked);
       const messages = SETTINGS_TOGGLE_MESSAGES.confirmBeforeCommit;
       if (messages) {
-        const variant = commitConfirmAsk.checked ? "on" : "off";
+        const variant = settingsPrefs.confirmBeforeCommit !== false ? "on" : "off";
         setStatus(messages[variant] || "Preference updated.", 2600);
       }
     });
@@ -4077,6 +4578,7 @@ function bind(){
   $("#btnAddApp").addEventListener("click", addNewApp);
   $("#btnDelApp").addEventListener("click", deleteApp);
   $("#btnDupApp").addEventListener("click", duplicateApp);
+  setupAppContextMenu();
 
   // Calendar filters & view
   const calendarViewToggle = $("#calendarViewToggle");
@@ -4236,7 +4738,11 @@ function bind(){
     const app = state.data.apps[state.currentIndex];
     const label = app ? (app.name || app.id || "app") : "";
     setStatus("Applied form changes.", 3000);
-    showToast("Changes applied to dataset", { variant: "success", meta: label });
+    showToast("Changes applied to dataset", {
+      variant: "success",
+      icon: TOAST_ICONS.datasetApplied,
+      meta: label
+    });
   });
   $("#btnReset").addEventListener("click", () => {
     if (state.currentIndex == null) clearForm();
@@ -4471,7 +4977,11 @@ function bind(){
     switchTab("tab-editor");
     setDirty(true);
     setStatus("Wizard created a new application.", 3000);
-    showToast("Wizard output applied", { variant: "success", meta: app.name || app.id || "New app" });
+    showToast("Wizard output applied", {
+      variant: "success",
+      icon: TOAST_ICONS.datasetApplied,
+      meta: app.name || app.id || "New app"
+    });
     resetWizardForm();
   });
   $("#wzLoadCurrent").addEventListener("click", () => {
@@ -4618,7 +5128,7 @@ async function checkForNewVersion(options = {}) {
         if (notify) {
           showToast("Update Available", {
             variant: "info",
-            icon: "assets/toastUpdate.png",
+            icon: TOAST_ICONS.updateAvailable,
             meta: latestDisplay
               ? `Version ${latestDisplay} is available`
               : `Build ${remoteCode} is available`,
@@ -4641,7 +5151,7 @@ async function checkForNewVersion(options = {}) {
       if (newer && notify) {
         showToast("Update Available", {
           variant: "info",
-          icon: "assets/toastUpdate.png",
+          icon: TOAST_ICONS.updateAvailable,
           meta: `Version ${latestDisplay} is available`,
           duration: 10000,
           actions: [{ label: "Update", onClick: () => openUpdateDialog(release) }]
@@ -4777,9 +5287,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   await syncVersionConfig();
   refreshUpdateDetails();
   // Attempt to load stored token early so the settings snapshot shows correct state immediately
+  let tokenSnapshot = null;
   try {
-    const stored = await vt.token.get();
-    if (stored) applyStoredTokenStatus(stored);
+    tokenSnapshot = await vt.token.get();
+    if (tokenSnapshot) applyStoredTokenStatus(tokenSnapshot);
   } catch (err) {
     console.warn('Early token load failed:', err);
   }
@@ -4788,20 +5299,27 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Start version checking
   await VersionChecker.start();
   
-  // Fetch data immediately
-  try {
-    const { token } = await vt.token.get();
-    if (token) {
-      await fetchFromGitHub();
-    } else {
-      showToast("GitHub Token Required", {
-        variant: "warning",
-        meta: "Please configure your GitHub token to fetch data",
-        duration: 8000
-      });
+  const shouldAutoFetch = settingsPrefs.autoFetchOnLaunch !== false;
+  if (shouldAutoFetch) {
+    try {
+      if (tokenSnapshot?.token) {
+        await fetchFromGitHub();
+      } else {
+        showToast("GitHub Token Required", {
+          variant: "warning",
+          meta: "Please configure your GitHub token to fetch data",
+          duration: 8000
+        });
+      }
+    } catch (error) {
+      console.error("Initial fetch failed:", error);
     }
-  } catch (error) {
-    console.error("Initial fetch failed:", error);
+  } else {
+    if (tokenSnapshot?.token) {
+      setStatus("Auto fetch on launch is disabled. Use Fetch when you're ready.", 3600);
+    } else {
+      setStatus("Auto fetch on launch is disabled. Configure a GitHub token to fetch when ready.", 3600);
+    }
   }
   
   await bootstrapUpdates();

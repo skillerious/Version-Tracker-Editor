@@ -405,9 +405,9 @@
 
       <!-- Settings Tab -->
       <div id="tab-settings" class="tabpage">
-        <div class="notice notice-muted tips-optional" data-icon="S">
-          <strong><img src="assets/infinate.svg" alt="" class="settings-inline-icon" aria-hidden="true" role="presentation">Workspace settings</strong>
-         <p>Configure repository access, token storage, automation, and appearance so the editor fits your release workflow.</p>
+        <div class="notice notice-muted tips-optional">
+          <strong class="notice-heading"><img src="assets/infinate.svg" alt="" class="settings-inline-icon" aria-hidden="true" role="presentation">Workspace settings</strong>
+          <p>Configure repository access, token storage, automation, and appearance so the editor fits your release workflow.</p>
         </div>
 
         <div class="settings-layout">
@@ -1124,6 +1124,66 @@
       </div>
     </div>
   </dialog>
+
+  <div id="appContextMenu" class="ctx-menu ctx-menu-root" role="menu" aria-hidden="true" tabindex="-1">
+    <div class="ctx-menu-group">
+      <button type="button" class="ctx-item" data-action="open" role="menuitem">Open</button>
+      <button type="button" class="ctx-item" data-action="open-wizard" role="menuitem">Load into wizard</button>
+    </div>
+    <div class="ctx-divider"></div>
+    <div class="ctx-menu-group">
+      <button type="button" class="ctx-item" data-action="duplicate" role="menuitem">Duplicate...</button>
+      <button type="button" class="ctx-item danger" data-action="delete" role="menuitem">Delete...</button>
+    </div>
+    <div class="ctx-divider"></div>
+    <div class="ctx-submenu" data-submenu="copy">
+      <button type="button" class="ctx-item has-submenu" data-submenu-trigger="copy" role="menuitem" aria-haspopup="true" aria-expanded="false">
+        <span>Copy</span>
+        <span class="ctx-caret" aria-hidden="true">&gt;</span>
+      </button>
+      <div class="ctx-menu ctx-menu-nested" data-menu="copy" role="menu" aria-hidden="true">
+        <button type="button" class="ctx-item" data-action="copy-id" role="menuitem">App ID</button>
+        <button type="button" class="ctx-item" data-action="copy-name" role="menuitem">App name</button>
+        <button type="button" class="ctx-item" data-action="copy-stable-version" role="menuitem">Stable version</button>
+        <button type="button" class="ctx-item" data-action="copy-stable-url" role="menuitem">Stable URL</button>
+        <button type="button" class="ctx-item" data-action="copy-json" role="menuitem">JSON snippet</button>
+        <button type="button" class="ctx-item" data-action="copy-history-summary" role="menuitem">Latest history summary</button>
+      </div>
+    </div>
+    <div class="ctx-submenu" data-submenu="tracks">
+      <button type="button" class="ctx-item has-submenu" data-submenu-trigger="tracks" role="menuitem" aria-haspopup="true" aria-expanded="false">
+        <span>Tracks</span>
+        <span class="ctx-caret" aria-hidden="true">&gt;</span>
+      </button>
+      <div class="ctx-menu ctx-menu-nested" data-menu="tracks" role="menu" aria-hidden="true">
+        <button type="button" class="ctx-item" data-action="promote-beta" role="menuitem">Promote beta -> stable</button>
+        <button type="button" class="ctx-item" data-action="clone-stable" role="menuitem">Clone stable -> beta</button>
+        <button type="button" class="ctx-item" data-action="toggle-beta" role="menuitem">Enable beta track</button>
+        <div class="ctx-divider"></div>
+        <button type="button" class="ctx-item" data-action="suggest-beta-version" role="menuitem">Suggest beta version</button>
+        <button type="button" class="ctx-item" data-action="suggest-beta-code" role="menuitem">Suggest beta code</button>
+        <button type="button" class="ctx-item" data-action="apply-form-to-app" role="menuitem">Apply pending changes</button>
+      </div>
+    </div>
+    <div class="ctx-submenu" data-submenu="history">
+      <button type="button" class="ctx-item has-submenu" data-submenu-trigger="history" role="menuitem" aria-haspopup="true" aria-expanded="false">
+        <span>History</span>
+        <span class="ctx-caret" aria-hidden="true">&gt;</span>
+      </button>
+      <div class="ctx-menu ctx-menu-nested" data-menu="history" role="menu" aria-hidden="true">
+        <button type="button" class="ctx-item" data-action="history-add-suggested" role="menuitem">Add suggested entry</button>
+        <button type="button" class="ctx-item" data-action="history-run-diagnostics" role="menuitem">Run diagnostics</button>
+        <button type="button" class="ctx-item" data-action="history-copy-count" role="menuitem">Copy entry count</button>
+        <div class="ctx-divider"></div>
+        <button type="button" class="ctx-item" data-action="history-highlight-latest" role="menuitem">Highlight latest row</button>
+      </div>
+    </div>
+    <div class="ctx-divider"></div>
+    <div class="ctx-menu-group">
+      <button type="button" class="ctx-item" data-action="open-calendar" role="menuitem">Open in calendar</button>
+      <button type="button" class="ctx-item" data-action="preview-app" role="menuitem">Refresh preview JSON</button>
+    </div>
+  </div>
 
   <script src="renderer.js" defer></script>
 </body>
