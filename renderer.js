@@ -1,4 +1,4 @@
-/* global vt */
+ï»¿/* global vt */
 
 // -------- Guards (helpful if preload fails during setup)
 if (!("vt" in window)) {
@@ -12,13 +12,77 @@ if (!("vt" in window)) {
 }
 
 // -------- Validators / utils
-const RX_SEMVER = /^[0-9]+(\.[0-9]+)*([\-a-z0-9\.]+)?$/i;
+const RX_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
 const RX_SLUG   = /^[a-z0-9][a-z0-9\-]{1,}$/;
 const RX_HTTP   = /^https?:\/\//i;
 
-const $ = (q) => document.querySelector(q);
+// DOM query cache
+const domCache = new Map();
+const $ = (q) => {
+  if (!domCache.has(q)) {
+    const el = document.querySelector(q);
+    if (el) domCache.set(q, el);
+    return el;
+  }
+  return domCache.get(q);
+};
 const $$ = (q) => Array.from(document.querySelectorAll(q));
 
+// Error handling utility
+const ErrorHandler = {
+  logError(error, context = '') {
+    console.error(`[${context}]:`, error);
+    const message = error?.message || String(error);
+    return `${context ? context + ': ' : ''}${message}`;
+  },
+  
+  showError(error, context = '') {
+    const message = this.logError(error, context);
+    showToast(message, { variant: "error" });
+    setStatus(message, 5000);
+  },
+
+  async handleAsync(promise, context = '') {
+    try {
+      return await promise;
+    } catch (error) {
+      this.showError(error, context);
+      throw error;
+    }
+  }
+};
+
+// Input sanitization utility
+const Sanitizer = {
+  escapeHtml(str) {
+    return String(str ?? "").replace(/[&<>"']/g, (ch) => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      "\"": "&quot;",
+      "'": "&#39;"
+    })[ch]);
+  },
+
+  validateUrl(url) {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  sanitizeId(id) {
+    return String(id || "").trim().toLowerCase();
+  },
+
+  sanitizeVersion(version) {
+    return String(version || "").trim().replace(/^v/i, "");
+  }
+};
+
+// State management
 const state = {
   repo: { owner: "skillerious", repo: "Version-Tracker", branch: "main", path: "repoversion.json" },
   sha: null,
@@ -45,7 +109,7 @@ const wizardState = {
 const SETTINGS_PREF_KEY = "vt.settings.preferences";
 let settingsPrefs = {
   autoFetchOnLaunch: true,
-  confirmBeforeCommit: false,
+  confirmBeforeCommit: true,
   showHelperTips: true,
   compactDensity: false
 };
@@ -109,21 +173,26 @@ function setStatus(msg, ms=3000){
 }
 const UPDATE_STATUS_META = {
   pending: { tooltip: "Update status pending", chip: "Status pending" },
-  checking: { tooltip: "Checking for updates…", chip: "Checking updates" },
+  checking: { tooltip: "Checking for updates...", chip: "Checking updates" },
   available: { tooltip: "Update available", chip: "Update available" },
   current: { tooltip: "Up to date", chip: "Up to date" },
   error: { tooltip: "Update check failed", chip: "Check failed" }
 };
 const UPDATE_STATUS_COPY = {
-  pending: { title: "Checking update status", lead: "We’ll let you know once we’ve fetched release information." },
-  checking: { title: "Checking for updates…", lead: "Hang tight while we contact GitHub for the latest release." },
+  pending: { title: "Checking update status", lead: "We'll let you know once we've fetched release information." },
+  checking: { title: "Checking for updates", lead: "Hang tight while we fetch the latest release info." },
   available: { title: "A fresh build is ready", lead: "Download the latest Version Tracker release to get new features and fixes." },
-  current: { title: "You’re up to date", lead: "You’re running the latest Version Tracker build." },
-  error: { title: "Update check failed", lead: "We couldn’t reach the update service. Try again shortly." }
+  current: { title: "You're up to date", lead: "You're running the latest Version Tracker build." },
+  error: { title: "Update check failed", lead: "We couldn't reach the update service. Try again shortly." }
 };
 const UPDATE_FALLBACK_REPO = { owner: "skillerious", repo: "VersionTrackerEditorElectron" };
-const UPDATE_USER_AGENT = "VersionTrackerEditor/UpdateCheck";
-const UPDATE_RELEASES_PER_PAGE = 6;
+// Feed base URL for Version Tracker's repo version manifest
+const UPDATE_FEED_BASE_URL = "https://skillerious.github.io/Version-Tracker";
+const UPDATE_FEED_PATH = "/repoversion.json";
+const UPDATE_DEFAULT_APP = "versiontrackereditor";
+const VERSION_CONFIG_PATH = "version.json";
+const DEFAULT_UPDATE_CHECK_INTERVAL = 3600000;
+const UPDATE_FEED_JSON_URL = `${UPDATE_FEED_BASE_URL}${UPDATE_FEED_PATH}?app=`;
 let updateProgressHideTimer = null;
 const updateState = {
   status: "pending",
@@ -146,8 +215,43 @@ const updateState = {
   lastChecked: null,
   platform: null,
   appName: "Version Tracker",
-  progressMessage: ""
+  progressMessage: "",
+  feedApp: UPDATE_DEFAULT_APP,
+  feedUrl: "",
+  releaseFeed: null
 };
+async function readVersionConfig({ silent = false } = {}) {
+  try {
+    const config = await vt.file.readJSON(VERSION_CONFIG_PATH);
+    return config && typeof config === "object" ? config : null;
+  } catch (err) {
+    if (!silent) console.warn(`Failed to read ${VERSION_CONFIG_PATH}:`, err);
+    return null;
+  }
+}
+function applyVersionConfig(config) {
+  if (!config || typeof config !== "object") return;
+  const rawVersion = typeof config.version === "string" ? config.version.trim() : "";
+  if (rawVersion) {
+    updateState.currentVersionRaw = rawVersion;
+    updateState.currentVersion = normalizeVersionTag(rawVersion);
+  }
+  const name = typeof config.name === "string" ? config.name.trim() : "";
+  if (name) updateState.appName = name;
+}
+async function syncVersionConfig(options = {}) {
+  const config = await readVersionConfig(options);
+  if (config) applyVersionConfig(config);
+  return config;
+}
+function resolveUpdateCheckInterval(raw) {
+  const num = Number(raw);
+  if (Number.isFinite(num) && num > 0) {
+    const coerced = Math.floor(num);
+    return coerced >= 60000 ? coerced : 60000;
+  }
+  return DEFAULT_UPDATE_CHECK_INTERVAL;
+}
 function setUpdateStatus(status = "pending", overrides = {}) {
   const normalized = UPDATE_STATUS_META[status] ? status : "pending";
   updateState.status = normalized;
@@ -176,13 +280,19 @@ function setUpdateStatus(status = "pending", overrides = {}) {
   const leadEl = $("#updateDialogLead");
   if (leadEl) leadEl.textContent = leadText;
 }
-function openUpdateDialog(){
+function openUpdateDialog(remoteRelease){
   const dlg = $("#updateDialog");
   if (!dlg) return;
+  if (remoteRelease && typeof remoteRelease === "object") {
+    const repo = updateState.repo || { ...UPDATE_FALLBACK_REPO };
+    applyReleaseToUpdateState(remoteRelease, repo);
+  }
   setUpdateStatus(updateState.status);
   refreshUpdateDetails();
-  if (!dlg.open) dlg.showModal();
-  if (!updateState.checking && updateState.status === "pending") {
+  if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
+  const needsRefresh = !updateState.checking
+    && (updateState.status === "pending" || !updateState.release || Boolean(remoteRelease));
+  if (needsRefresh) {
     checkForUpdates({ userInitiated: true }).catch((err) => {
       console.error("Update dialog check failed:", err);
     });
@@ -355,7 +465,7 @@ function renderUpdateNotes(){
     container.append(p);
   };
   if (status === "checking") {
-    appendParagraph("Fetching release notes…");
+    appendParagraph("Fetching release notes...");
     return;
   }
   if (status === "pending") {
@@ -412,7 +522,7 @@ function refreshUpdateDetails(){
   const availableMetaEl = $("#updateAvailableMeta");
   if (availableMetaEl) {
     let metaText = "";
-    if (updateState.status === "checking") metaText = "Contacting GitHub…";
+    if (updateState.status === "checking") metaText = "Fetching release information...";
     else if (updateState.status === "pending") metaText = "Awaiting update check.";
     else if (updateState.status === "error") metaText = "Update check failed.";
     else if (updateState.release) {
@@ -421,12 +531,12 @@ function refreshUpdateDetails(){
         const parts = [];
         if (releaseMeta) parts.push(`Released ${releaseMeta}`);
         if (updateState.isPrerelease) parts.push("Marked as pre-release");
-        metaText = parts.join(" • ") || "Ready when you are.";
+        metaText = parts.join(" - ") || "Ready when you are.";
       } else {
         const parts = [];
         if (releaseMeta) parts.push(`Latest release ${releaseMeta}`);
         parts.push(updateState.isPrerelease ? "Pre-release" : "Latest published build");
-        metaText = parts.join(" • ");
+        metaText = parts.join(" - ");
       }
     } else {
       metaText = updateState.status === "current" ? "No newer builds were found." : "Waiting for release data.";
@@ -437,7 +547,7 @@ function refreshUpdateDetails(){
   if (checkBtn) {
     setButtonBusy(checkBtn, updateState.checking);
     const labelEl = checkBtn.querySelector(".btn-label");
-    const text = updateState.checking ? "Checking…" : "Check again";
+    const text = updateState.checking ? "Checking..." : "Check again";
     if (labelEl) labelEl.textContent = text;
     else checkBtn.textContent = text;
   }
@@ -472,10 +582,13 @@ function refreshUpdateDetails(){
     const labelEl = $("#updateProgressLabel");
     const bar = progressWrap.querySelector(".update-progress-bar");
     const active = updateState.checking;
-    const message = updateState.progressMessage || (active ? "Checking for updates…" : "");
-    progressWrap.hidden = !active && !message;
+    const message = updateState.progressMessage || (active ? "Checking for updates..." : "");
+    const shouldShow = active || Boolean(message);
+    progressWrap.hidden = false;
     progressWrap.classList.toggle("is-active", active);
+    progressWrap.classList.toggle("is-visible", shouldShow);
     progressWrap.dataset.state = active ? "checking" : (updateState.status || "pending");
+    progressWrap.setAttribute("aria-hidden", shouldShow ? "false" : "true");
     if (labelEl) labelEl.textContent = message;
     if (bar) {
       bar.classList.toggle("is-animated", active);
@@ -485,49 +598,96 @@ function refreshUpdateDetails(){
   }
   renderUpdateNotes();
 }
-async function fetchLatestRelease(repo, token){
-  const params = new URLSearchParams({ per_page: String(UPDATE_RELEASES_PER_PAGE) });
-  const url = `https://api.github.com/repos/${repo.owner}/${repo.repo}/releases?${params.toString()}`;
-  const headers = {
-    "Accept": "application/vnd.github+json",
-    "User-Agent": UPDATE_USER_AGENT
-  };
-  if (token) {
-    const trimmed = String(token || "").trim();
-    if (trimmed) {
-      const scheme = trimmed.startsWith("github_pat_") ? "Bearer" : "token";
-      headers.Authorization = `${scheme} ${trimmed}`;
-    }
-  }
+async function fetchLatestRelease(){
+  const appSlug = (updateState.feedApp || UPDATE_DEFAULT_APP || "").toLowerCase();
+  // Fetch repoversion.json directly, using a cache-buster query to ensure fresh data
+  const url = `${UPDATE_FEED_BASE_URL}${UPDATE_FEED_PATH}?ts=${Date.now()}`;
   let res;
   try {
-    res = await fetch(url, { headers });
-  } catch (err) {
-    throw new Error("Network error contacting GitHub for updates.");
+    res = await fetch(url, { headers: { "Accept": "application/json", "Cache-Control": "no-cache" } });
+  } catch {
+    throw new Error("Network error contacting the update service.");
   }
-  if (res.status === 404) {
-    throw new Error(`No release feed found for ${repo.owner}/${repo.repo}.`);
-  }
-  const body = await res.text();
+  const bodyText = await res.text();
   if (!res.ok) {
-    let message = `GitHub update check failed: ${res.status} ${res.statusText}`;
+    let message = `Update feed request failed: ${res.status} ${res.statusText}`;
     try {
-      const parsed = JSON.parse(body || "{}");
+      const parsed = JSON.parse(bodyText || "{}");
       if (parsed?.message) message += `\n${parsed.message}`;
     } catch {}
     throw new Error(message);
   }
-  let releases;
+  let data;
   try {
-    releases = JSON.parse(body);
+    data = JSON.parse(bodyText || "{}");
   } catch {
-    throw new Error("Received an invalid response from GitHub when Checking for updates…");
+    throw new Error("Received an invalid response from the update feed.");
   }
-  if (!Array.isArray(releases) || !releases.length) return null;
-  return releases.find((rel) => !rel.draft && !rel.prerelease)
-    || releases.find((rel) => !rel.draft)
-    || releases[0];
+
+  // Find our app in the list (case-insensitive id match)
+  const app = Array.isArray(data?.apps) 
+    ? data.apps.find(a => (a?.id || "").toLowerCase() === appSlug)
+    : null;
+  if (!app) return null;
+
+  // Extract update information from stable track
+  const stable = app.tracks?.stable || {};
+  const version = (stable.version || "").trim();
+  const code = stable.code;
+  
+  if (!version && code == null) return null;
+
+  const downloadUrl = stable.download || stable.url || "";
+  const assetName = downloadUrl ? (downloadUrl.split(/[\\/]/).pop() || "Download") : "";
+
+  const release = {
+    tag_name: version || String(stable.version || ""),
+    name: version || String(stable.version || ""),
+    body: stable.notes || "",
+    html_url: stable.url || "",
+    published_at: stable.date ? new Date(`${stable.date}T00:00:00Z`).toISOString() : null,
+    prerelease: false,
+    assets: downloadUrl ? [{ name: assetName || "Download", browser_download_url: downloadUrl }] : [],
+    feed: app || null,
+    feedCode: Number.isFinite(Number(code)) ? Number(code) : (code == null ? null : Number(code)),
+    feedDate: stable.date || null,
+    feedDownload: downloadUrl,
+    feedUrl: url
+  };
+  return release;
 }
+function applyReleaseToUpdateState(release, repo){
+  if (!release || typeof release !== "object") return;
+  const sourceRepo = repo && typeof repo === "object"
+    ? repo
+    : (updateState.repo && typeof updateState.repo === "object" ? updateState.repo : UPDATE_FALLBACK_REPO);
+  const targetRepo = { ...sourceRepo };
+  updateState.repo = targetRepo;
+  updateState.repoHtmlUrl = repoToHtmlUrl(targetRepo);
+  updateState.release = release;
+  updateState.releaseFeed = release.feed || null;
+  if (release.feed?.id) updateState.feedApp = String(release.feed.id).toLowerCase();
+  if (release.feedUrl) updateState.feedUrl = release.feedUrl;
+  const stableTrack = release.feed?.tracks?.stable || {};
+  const latestRaw = release.tag_name || release.name || "";
+  const latestNormalized = normalizeVersionTag(latestRaw);
+  updateState.latestVersion = latestNormalized || latestRaw || "";
+  updateState.latestVersionRaw = latestRaw || latestNormalized || "";
+  updateState.releaseNotes = (release.body || "").trim();
+  updateState.releasePublishedAt = release.feedDate
+    ? new Date(`${release.feedDate}T00:00:00Z`).toISOString()
+    : (release.published_at || null);
+  const asset = Array.isArray(release.assets) && release.assets.length ? release.assets[0] : null;
+  updateState.downloadAsset = asset;
+  const downloadUrl = release.feedDownload || stableTrack.download || asset?.browser_download_url || "";
+  updateState.downloadUrl = downloadUrl;
+  const downloadLabel = asset?.name || (downloadUrl ? (downloadUrl.split(/[\\/]/).pop() || "Download update") : "");
+  updateState.downloadLabel = downloadLabel || (downloadUrl ? "Download update" : "");
+  updateState.isPrerelease = Boolean(release.prerelease);
+  const releaseUrl = release.html_url || stableTrack.url || repoReleaseUrl(targetRepo);
+  updateState.releaseUrl = releaseUrl;
+}
+
 async function checkForUpdates(options = {}){
   if (updateState.checking) return;
   const { userInitiated = false } = options;
@@ -537,25 +697,23 @@ async function checkForUpdates(options = {}){
     updateProgressHideTimer = null;
   }
   updateState.progressMessage = userInitiated
-    ? "Checking GitHub for the newest release…"
-    : "Refreshing release information…";
+    ? "Checking for updates..."
+    : "Refreshing update details...";
   updateState.errorMessage = "";
-  setUpdateStatus("checking", userInitiated ? { lead: "Checking for updates…" } : undefined);
+  const versionConfig = await syncVersionConfig({ silent: true });
+  setUpdateStatus("checking", userInitiated ? { lead: "Checking for updates..." } : undefined);
+  updateState.feedUrl = `${UPDATE_FEED_JSON_URL}${encodeURIComponent(updateState.feedApp || UPDATE_DEFAULT_APP)}`;
   refreshUpdateDetails();
   const repo = updateState.repo || { ...UPDATE_FALLBACK_REPO };
   let succeeded = false;
   try {
-    let token = "";
-    try {
-      const stored = await vt.token.get();
-      token = stored?.token || "";
-    } catch {}
-    const release = await fetchLatestRelease(repo, token);
+    const release = await fetchLatestRelease();
     updateState.lastChecked = new Date();
     if (!release) {
       updateState.latestVersion = "";
       updateState.latestVersionRaw = "";
       updateState.release = null;
+      updateState.releaseFeed = null;
       updateState.releaseNotes = "";
       updateState.releasePublishedAt = null;
       updateState.downloadUrl = "";
@@ -567,25 +725,75 @@ async function checkForUpdates(options = {}){
       refreshUpdateDetails();
       return;
     }
-    const latestRaw = release.tag_name || release.name || "";
-    const latestNormalized = normalizeVersionTag(latestRaw);
-    updateState.latestVersion = latestNormalized || latestRaw || "";
-    updateState.latestVersionRaw = latestRaw || latestNormalized || "";
-    updateState.release = release;
-    updateState.releaseNotes = (release.body || "").trim();
-    updateState.releasePublishedAt = release.published_at || release.created_at || null;
-    updateState.releaseUrl = release.html_url || repoReleaseUrl(repo);
-    updateState.isPrerelease = Boolean(release.prerelease);
-    const asset = pickDownloadAsset(release.assets || [], updateState.platform);
-    updateState.downloadAsset = asset;
-    updateState.downloadUrl = asset?.browser_download_url || "";
-    updateState.downloadLabel = asset?.name || (latestNormalized ? `Download ${formatVersionDisplay(latestNormalized)}` : "");
-    const currentVersion = updateState.currentVersion;
-    const comparison = latestNormalized && currentVersion ? compareSemver(latestNormalized, currentVersion) : (latestNormalized ? 1 : 0);
-    const nextStatus = comparison > 0 ? "available" : "current";
-    const lead = nextStatus === "available"
-      ? `Version ${formatVersionDisplay(latestNormalized || latestRaw)} is ready. Download to get the latest improvements.`
-      : "You're running the latest Version Tracker build.";
+    applyReleaseToUpdateState(release, repo);
+    const latestRaw = updateState.latestVersionRaw || updateState.latestVersion || "";
+    const latestNormalized = normalizeVersionTag(latestRaw) || normalizeVersionTag(updateState.latestVersion || "");
+    // Determine local app info and numeric code for robust comparison against feed's numeric 'code'
+    let localInfo = null;
+    try {
+      localInfo = await vt.app.info();
+    } catch (err) {
+      // Non-fatal â€” we'll fallback to version.json or semver-derived code
+      console.warn('vt.app.info() unavailable for update comparison:', err);
+      localInfo = null;
+    }
+
+    // Helper: derive numeric code from semver (major*100000 + minor*1000 + patch)
+    const semverToCode = (v) => {
+      if (!v) return null;
+      try {
+        const parts = String(v).replace(/^v/i, '').split('-')[0].split('.').map(p => Number.parseInt(p || '0', 10));
+        const [maj = 0, min = 0, pat = 0] = parts.concat([0,0,0]).slice(0,3);
+        return (Number(maj) * 100000) + (Number(min) * 1000) + Number(pat);
+      } catch {
+        return null;
+      }
+    };
+
+    // Determine local numeric code: prefer explicit numeric fields on app info, then local version.json, then semver-derived
+    let localCode = null;
+    if (localInfo) {
+      if (Number.isFinite(Number(localInfo.code))) localCode = Number(localInfo.code);
+      else if (Number.isFinite(Number(localInfo.build))) localCode = Number(localInfo.build);
+      else if (Number.isFinite(Number(localInfo.versionCode))) localCode = Number(localInfo.versionCode);
+      if (!localCode && localInfo.version) localCode = semverToCode(localInfo.version);
+    }
+    if (!localCode && versionConfig) {
+      if (Number.isFinite(Number(versionConfig.code))) localCode = Number(versionConfig.code);
+      if (!localCode && versionConfig.version) localCode = semverToCode(versionConfig.version);
+    }
+    // fallback to package.json version if still missing
+    if (!localCode) {
+      try {
+        const pkg = await vt.file.readJSON('package.json');
+        if (pkg && pkg.version) localCode = semverToCode(pkg.version);
+      } catch (err) {}
+    }
+
+    // Normalize feed numeric code
+    const remoteCode = Number.isFinite(Number(release.feedCode)) ? Number(release.feedCode) : null;
+
+    // Decide update using numeric code when available, otherwise fall back to semver compare
+    let nextStatus = 'current';
+    let lead = "You're running the latest Version Tracker build.";
+    if (remoteCode != null && localCode != null) {
+      if (remoteCode > localCode) {
+        nextStatus = 'available';
+        lead = `A newer build (code ${remoteCode}) is available.`;
+      } else {
+        nextStatus = 'current';
+      }
+    } else {
+      const currentVersion =
+        updateState.currentVersion
+        || (versionConfig && versionConfig.version ? normalizeVersionTag(versionConfig.version) : null)
+        || (localInfo && localInfo.version ? normalizeVersionTag(localInfo.version) : null);
+      const comparison = latestNormalized && currentVersion ? compareSemver(latestNormalized, currentVersion) : (latestNormalized ? 1 : 0);
+      nextStatus = comparison > 0 ? 'available' : 'current';
+      lead = nextStatus === 'available'
+        ? `Version ${formatVersionDisplay(latestNormalized || latestRaw)} is ready. Download to get the latest improvements.`
+        : "You're running the latest Version Tracker build.";
+    }
     setUpdateStatus(nextStatus, { lead });
     refreshUpdateDetails();
     succeeded = true;
@@ -593,7 +801,6 @@ async function checkForUpdates(options = {}){
     updateState.errorMessage = err?.message || "Update check failed.";
     updateState.progressMessage = "Update check failed.";
     setUpdateStatus("error", { lead: "We couldn't reach the update service. Try again shortly." });
-    refreshUpdateDetails();
   } finally {
     updateState.checking = false;
     if (!updateState.lastChecked) updateState.lastChecked = new Date();
@@ -605,33 +812,34 @@ async function checkForUpdates(options = {}){
       refreshUpdateDetails();
     }, succeeded ? 1400 : 2200);
   }
-}
-async function bootstrapUpdates(){
-  setUpdateStatus(updateState.status);
-  refreshUpdateDetails();
-  try {
-    const info = await vt.app.info();
-    if (info?.name) updateState.appName = info.name;
-    if (info?.version) {
-      updateState.currentVersionRaw = info.version;
-      updateState.currentVersion = normalizeVersionTag(info.version);
-    }
-    if (info?.platform) updateState.platform = info.platform;
-    const repo = deriveUpdateRepo(info);
-    updateState.repo = repo;
-    updateState.repoHtmlUrl = repoToHtmlUrl(repo);
-    updateState.releaseUrl = repoReleaseUrl(repo);
-  } catch (err) {
-    console.error("Failed to load app info for updates:", err);
-    updateState.repo = { ...UPDATE_FALLBACK_REPO };
-    updateState.repoHtmlUrl = repoToHtmlUrl(updateState.repo);
-    updateState.releaseUrl = repoReleaseUrl(updateState.repo);
+
+} 
+
+// Performance utilities
+const Performance = {
+  debounce(fn, wait = 300) {
+    let timeout;
+    return function executedFunction(...args) {
+      const later = () => {
+        clearTimeout(timeout);
+        fn.apply(this, args);
+      };
+      clearTimeout(timeout);
+      timeout = setTimeout(later, wait);
+    };
+  },
+  throttle(fn, limit = 300) {
+    let inThrottle;
+    return function executedFunction(...args) {
+      if (!inThrottle) {
+        fn.apply(this, args);
+        inThrottle = true;
+        setTimeout(() => inThrottle = false, limit);
+      }
+    };
   }
-  refreshUpdateDetails();
-  checkForUpdates({ userInitiated: false }).catch((err) => {
-    console.error("Background update check failed:", err);
-  });
-}
+};
+
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const CALENDAR_DAY_MS = 24 * 60 * 60 * 1000;
@@ -695,6 +903,60 @@ function shortenNotes(text, max = 220){
   if (trimmed.length <= max) return trimmed;
   return `${trimmed.slice(0, max - 3).trimEnd()}...`;
 }
+// Cleanup utility
+const CleanupManager = {
+  listeners: new Map(),
+  timers: new Set(),
+  observers: new Set(),
+
+  addListener(element, type, listener, options) {
+    element.addEventListener(type, listener, options);
+    const key = `${element.tagName || 'unknown'}-${type}`;
+    if (!this.listeners.has(key)) {
+      this.listeners.set(key, []);
+    }
+    this.listeners.get(key).push({ element, type, listener, options });
+  },
+
+  setTimeout(callback, delay) {
+    const timer = window.setTimeout(() => {
+      this.timers.delete(timer);
+      callback();
+    }, delay);
+    this.timers.add(timer);
+    return timer;
+  },
+
+  createObserver(target, config, callback) {
+    const observer = new MutationObserver(callback);
+    observer.observe(target, config);
+    this.observers.add(observer);
+    return observer;
+  },
+
+  cleanup() {
+    // Clear event listeners
+    for (const listeners of this.listeners.values()) {
+      listeners.forEach(({ element, type, listener, options }) => {
+        element.removeEventListener(type, listener, options);
+      });
+    }
+    this.listeners.clear();
+
+    // Clear timers
+    this.timers.forEach(timer => window.clearTimeout(timer));
+    this.timers.clear();
+
+    // Disconnect observers
+    this.observers.forEach(observer => observer.disconnect());
+    this.observers.clear();
+
+    // Clear DOM cache
+    domCache.clear();
+  }
+};
+
+// Toast state
 const toastState = { nextId: 0 };
 const TOKEN_VERIFY_ICONS = {
   loading: `<svg viewBox="0 0 24 24" fill="none" role="presentation" focusable="false" class="spin"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2" opacity=".28"></circle><path d="M20.5 12a8.5 8.5 0 0 0-8.5-8.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>`,
@@ -797,6 +1059,59 @@ function todayDate(){ return new Date().toISOString().slice(0,10); }
 let historySelectionKey = null;
 let fetchInFlight = false;
 let commitInFlight = false;
+let commitConfirmState = { promise: null, resolve: null };
+
+function buildCommitTargetLabel(){
+  const repo = state.repo || UPDATE_FALLBACK_REPO;
+  const owner = repo.owner || "--";
+  const name = repo.repo || "repo";
+  const branch = repo.branch || "main";
+  return `${owner}/${name}@${branch}`;
+}
+function buildCommitAppsLabel(){
+  const count = Array.isArray(state.data?.apps) ? state.data.apps.length : 0;
+  const appLabel = `${count} app${count === 1 ? "" : "s"}`;
+  const changeLabel = state.dirty ? "Pending changes ready" : "No pending edits";
+  return `${appLabel} - ${changeLabel}`;
+}
+function refreshCommitConfirmDialog(){
+  const repo = state.repo || UPDATE_FALLBACK_REPO;
+  const owner = repo.owner || "--";
+  const name = repo.repo || "repo";
+  const branch = repo.branch || "main";
+  const targetEl = $("#commitConfirmTarget");
+  if (targetEl) targetEl.textContent = `${owner}/${name}@${branch}`;
+  const repoEl = $("#commitConfirmRepo");
+  if (repoEl) repoEl.textContent = `${owner}/${name}`;
+  const branchEl = $("#commitConfirmBranch");
+  if (branchEl) branchEl.textContent = branch;
+  const appsEl = $("#commitConfirmApps");
+  if (appsEl) appsEl.textContent = buildCommitAppsLabel();
+  const shaEl = $("#commitConfirmSha");
+  if (shaEl) shaEl.textContent = state.sha ? state.sha.slice(0, 8) : "Not committed";
+  const askToggle = $("#commitConfirmAsk");
+  if (askToggle) askToggle.checked = settingsPrefs.confirmBeforeCommit !== false;
+}
+function settleCommitConfirmation(result){
+  const dialog = $("#commitConfirmDialog");
+  const resolver = commitConfirmState.resolve;
+  commitConfirmState.resolve = null;
+  commitConfirmState.promise = null;
+  if (dialog?.open) dialog.close();
+  if (resolver) resolver(result);
+}
+function promptCommitConfirmation(){
+  const dialog = $("#commitConfirmDialog");
+  if (!dialog) return Promise.resolve(true);
+  if (commitConfirmState.promise) return commitConfirmState.promise;
+  refreshCommitConfirmDialog();
+  commitConfirmState.promise = new Promise((resolve) => {
+    commitConfirmState.resolve = resolve;
+  });
+  if (!dialog.open) dialog.showModal();
+  return commitConfirmState.promise;
+}
+
 function summarizeStableTrack(app){
   const stable = app?.tracks?.stable || {};
   const parts = [];
@@ -1150,7 +1465,6 @@ function bindTitlebar() {
   const updateBtn = $("#btnUpdate");
   if (updateBtn) {
     updateBtn.addEventListener("click", () => {
-      if (updateBtn.dataset.state === "checking") return;
       openUpdateDialog();
     });
   }
@@ -1159,6 +1473,21 @@ function bindTitlebar() {
   $("#winClose").addEventListener("click", () => vt.win.close());
   window.addEventListener("resize", () => { updateMaxBtn(); });
   updateMaxBtn();
+}
+
+function bindDialogFocusManagement() {
+  $$("dialog").forEach((dialog) => {
+    if (!dialog || dialog.dataset.focusClearBound) return;
+    dialog.dataset.focusClearBound = "1";
+    dialog.addEventListener("cancel", () => {
+      window.requestAnimationFrame(() => {
+        const active = document.activeElement;
+        if (active && typeof active.blur === "function") {
+          active.blur();
+        }
+      });
+    });
+  });
 }
 
 // -------- Breadcrumbs (scrollable + links)
@@ -1277,6 +1606,17 @@ function switchTab(id){
     switchEditorSection(state.editorSection || "section-dataset", { restore: true });
   } else {
     content.scrollTop = scrollPos[id] || 0;
+  }
+  // Auto-refresh onboarding/settings status when opening the Settings tab
+  try {
+    if (id === "tab-settings") {
+      // Refresh UI snapshot immediately and kick off a full onboarding status refresh (including verification)
+      refreshSettingsSnapshot();
+      // fire-and-forget async refresh; errors will be logged
+      refreshOnboardingStatus({ includeVerify: true }).catch((err) => console.error("Failed to refresh onboarding status:", err));
+    }
+  } catch (err) {
+    console.error("Error while auto-refreshing settings on tab switch:", err);
   }
 }
 function bindTabs(){
@@ -1897,24 +2237,98 @@ function applyPendingChanges(options = {}){
 function validate(){
   const issues = [];
   const ids = new Set();
-  for (const app of state.data.apps) {
-    if (!RX_SLUG.test(app.id || "")) issues.push(`Invalid app id '${app.id}'. Use lowercase letters, numbers, hyphens.`);
-    if (ids.has(app.id)) issues.push(`Duplicate app id '${app.id}'.`);
-    ids.add(app.id);
+  const semverStrict = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
 
-    const checkTrack = (label, t) => {
-      if (!t) return;
-      if (t.version && !RX_SEMVER.test(t.version)) issues.push(`${app.id}: ${label} version '${t.version}' looks odd.`);
-      if (t.date && !/^\d{4}-\d{2}-\d{2}$/.test(t.date)) issues.push(`${app.id}: ${label} date '${t.date}' must be YYYY-MM-DD.`);
-      if (t.url && !RX_HTTP.test(t.url)) issues.push(`${app.id}: ${label} url must start with http(s)://.`);
-      if (t.download && !RX_HTTP.test(t.download)) issues.push(`${app.id}: ${label} download must start with http(s)://.`);
+  try {
+    for (const app of state.data.apps) {
+      // Sanitize and validate app ID
+      const sanitizedId = String(app.id || "").trim();
+      if (!sanitizedId) {
+        issues.push('App ID cannot be empty.');
+        continue;
+      }
+      
+      if (!RX_SLUG.test(sanitizedId)) {
+        issues.push(`Invalid app id '${sanitizedId}'. Use lowercase letters, numbers, hyphens.`);
+      }
+      
+      if (ids.has(sanitizedId)) {
+        issues.push(`Duplicate app id '${sanitizedId}'.`);
+      }
+      ids.add(sanitizedId);
+
+      const checkTrack = (label, t) => {
+        if (!t) return;
+        
+        // Strict semver validation
+        if (t.version) {
+          const version = String(t.version).trim();
+          if (!semverStrict.test(version)) {
+            issues.push(`${sanitizedId}: ${label} version '${version}' must follow strict semver (x.y.z).`);
+          }
+        }
+
+        // Date validation
+        if (t.date) {
+          const date = String(t.date).trim();
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+            issues.push(`${sanitizedId}: ${label} date '${date}' must be YYYY-MM-DD.`);
+          } else {
+            // Validate date components
+            const [year, month, day] = date.split('-').map(Number);
+            const d = new Date(year, month - 1, day);
+            if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) {
+              issues.push(`${sanitizedId}: ${label} date '${date}' is invalid.`);
+            }
+          }
+        }
+
+      // URL validation
+      if (t.url) {
+        const url = String(t.url).trim();
+        if (!RX_HTTP.test(url)) {
+          issues.push(`${sanitizedId}: ${label} url must start with http(s)://.`);
+        }
+        try {
+          new URL(url);
+        } catch {
+          issues.push(`${sanitizedId}: ${label} url '${url}' is not a valid URL.`);
+        }
+      }
+
+      // Download URL validation
+      if (t.download) {
+        const download = String(t.download).trim();
+        if (!RX_HTTP.test(download)) {
+          issues.push(`${sanitizedId}: ${label} download must start with http(s)://.`);
+        }
+        try {
+          new URL(download);
+        } catch {
+          issues.push(`${sanitizedId}: ${label} download URL '${download}' is not valid.`);
+        }
+      }
     };
-    checkTrack("stable", app.tracks?.stable);
-    if (app.tracks?.beta) checkTrack("beta", app.tracks.beta);
 
-    if (!app.tracks?.stable) issues.push(`${app.id}: stable track is required.`);
+    // Validate tracks
+    if (!app.tracks?.stable) {
+      issues.push(`${sanitizedId}: stable track is required.`);
+    } else {
+      checkTrack("stable", app.tracks.stable);
+    }
+
+    if (app.tracks?.beta) {
+      checkTrack("beta", app.tracks.beta);
+    }
   }
-  if (!state.data.apps.length) issues.push("No apps defined.");
+  } catch (error) {
+    issues.push(`Error validating apps: ${error.message}`);
+  }
+
+  if (!state.data.apps.length) {
+    issues.push("No apps defined.");
+  }
+
   return issues;
 }
 function stampGenerated(){
@@ -1947,82 +2361,210 @@ async function fetchFromGitHub(){
   if (fetchInFlight) return;
   fetchInFlight = true;
   const btn = $("#btnFetch");
-  setButtonBusy(btn, true);
-  setStatus("Fetching from GitHub...", 0);
-  try{
-    const { text, sha } = await vt.github.getFile(state.repo);
-    const payload = JSON.parse(text);
-    state.data = payload;
+  
+  try {
+    // Check connectivity first
+    const isConnected = await checkGitHubConnectivity();
+    if (!isConnected) {
+      showToast("GitHub Connection Failed", {
+        variant: "error",
+        meta: "Please check your internet connection and try again",
+        duration: 8000
+      });
+      throw new Error("Cannot reach GitHub. Please check your internet connection and try again.");
+    }
+    setButtonBusy(btn, true);
+    setStatus("Fetching from GitHub...", 0);
+    
+    // Fetch and validate response
+    const { text, sha } = await ErrorHandler.handleAsync(
+      vt.github.getFile(state.repo),
+      'GitHub Fetch'
+    );
+    
+    if (!text || !sha) {
+      throw new Error('Invalid response from GitHub');
+    }
+
+    // Parse and validate data
+    let payload;
+    try {
+      payload = JSON.parse(text);
+    } catch (parseError) {
+      throw new Error('Invalid JSON response from GitHub');
+    }
+
+    // Update application state
+    state.data = {
+      ...payload,
+      apps: Array.isArray(payload.apps) ? payload.apps : []
+    };
     state.sha = sha;
     setDirty(false);
-    $("#edContact").value = state.data.contact || "";
-    $("#edGenerated").value = state.data.generated || "";
-    if (!Array.isArray(state.data.apps)) state.data.apps = [];
+
+    // Update UI
+    const edContact = $("#edContact");
+    const edGenerated = $("#edGenerated");
+    if (edContact) edContact.value = state.data.contact || "";
+    if (edGenerated) edGenerated.value = state.data.generated || "";
+    
     state.currentIndex = state.data.apps.length ? 0 : null;
+    
+    // Refresh all views
     renderApps();
-    if (state.currentIndex != null) populateForm(state.data.apps[state.currentIndex]); else clearForm();
-    $("#previewBox").value = buildJSON();
+    if (state.currentIndex != null) {
+      populateForm(state.data.apps[state.currentIndex]);
+    } else {
+      clearForm();
+    }
+
+    const previewBox = $("#previewBox");
+    if (previewBox) previewBox.value = buildJSON();
+    
     resetWizardForm();
+
+    // Show success messages
     const shortSha = sha.slice(0,8);
     setStatus(`Fetched repoversion.json @ ${shortSha}`, 6000);
-    showToast("Repository refreshed", { variant: "info", meta: shortSha ? `SHA ${shortSha}` : "" });
-  }catch(err){
-    console.error(err);
-    setStatus(String(err), 6000);
-    alert(`GitHub fetch error:\n${err.message || err}`);
-    showToast("Fetch failed", { variant: "error", meta: err.message || "Unable to reach GitHub." });
-  }finally{
+    showToast("Repository refreshed", { 
+      variant: "success", 
+      meta: shortSha ? `SHA ${shortSha}` : "" 
+    });
+
+  } catch (error) {
+    ErrorHandler.showError(error, 'GitHub Fetch');
+  } finally {
     fetchInFlight = false;
     setButtonBusy(btn, false);
   }
 }
+async function checkGitHubConnectivity() {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    
+    const response = await fetch('https://api.github.com/zen', { 
+      signal: controller.signal 
+    });
+    
+    clearTimeout(timeoutId);
+    return response.ok;
+  } catch (error) {
+    console.error('GitHub connectivity check failed:', error);
+    return false;
+  }
+}
+
 async function commitToGitHub(){
   if (commitInFlight) return;
-  if (state.formDirty) {
-    const applyNow = confirm("You have unapplied form changes. Apply them before committing to GitHub?");
-    if (!applyNow) {
-      setStatus("Commit cancelled. Apply changes first.", 5000);
-      return;
+
+  try {
+    // Check connectivity first
+    const isConnected = await checkGitHubConnectivity();
+    if (!isConnected) {
+      showToast("GitHub Connection Failed", {
+        variant: "error",
+        meta: "Please check your internet connection and try again",
+        duration: 8000
+      });
+      throw new Error("Cannot reach GitHub. Please check your internet connection and try again.");
     }
-    applyPendingChanges({ silent: true, updatePreview: true });
-  } else if (state.currentIndex != null) {
-    applyFormToApp(state.currentIndex);
-  }
-  const issues = validate();
-  if (issues.length){
-    alert("Resolve these issues:\n\n" + issues.map((s) => "- " + s).join("\n"));
-    return;
-  }
-  if (settingsPrefs.confirmBeforeCommit !== false) {
-    const proceed = confirm("Commit changes to GitHub now?");
-    if (!proceed) {
-      setStatus("Commit cancelled.", 4000);
-      return;
+    // Handle dirty form state
+    if (state.formDirty) {
+      const applyNow = await new Promise(resolve => {
+        showToast("Unapplied changes detected", {
+          variant: "warning",
+          meta: "Apply changes before commit?",
+          duration: 0,
+          actions: [
+            {
+              label: "Apply",
+              onClick: () => resolve(true)
+            },
+            {
+              label: "Cancel",
+              onClick: () => resolve(false)
+            }
+          ]
+        });
+      });
+
+      if (!applyNow) {
+        setStatus("Commit cancelled. Apply changes first.", 5000);
+        return;
+      }
+      applyPendingChanges({ silent: true, updatePreview: true });
+    } else if (state.currentIndex != null) {
+      applyFormToApp(state.currentIndex);
     }
-  }
-  commitInFlight = true;
-  const btn = $("#btnCommit");
-  setButtonBusy(btn, true);
-  stampGenerated();
-  const text = buildJSON();
-  $("#previewBox").value = text;
-  setStatus("Committing to GitHub...", 0);
-  try{
-    const res = await vt.github.putFile({ ...state.repo, text, baseSha: state.sha || "" });
-    const newSha = (res?.content?.sha) || "";
+
+    // Validate content
+    const issues = validate();
+    if (issues.length) {
+      const message = "Please resolve the following issues:\n\n" + 
+                     issues.map((s) => "- " + s).join("\n");
+      showToast("Validation failed", {
+        variant: "error",
+        meta: `${issues.length} issue${issues.length === 1 ? '' : 's'} found`
+      });
+      throw new Error(message);
+    }
+
+    // Confirm commit if needed
+    if (settingsPrefs.confirmBeforeCommit !== false) {
+      const proceed = await promptCommitConfirmation();
+      if (!proceed) {
+        setStatus("Commit cancelled.", 4000);
+        return;
+      }
+    }
+
+    // Prepare commit
+    commitInFlight = true;
+    const btn = $("#btnCommit");
+    setButtonBusy(btn, true);
+    
+    // Update metadata
+    stampGenerated();
+    const text = buildJSON();
+    const previewBox = $("#previewBox");
+    if (previewBox) previewBox.value = text;
+    
+    setStatus("Committing to GitHub...", 0);
+
+    // Perform commit
+    const res = await ErrorHandler.handleAsync(
+      vt.github.putFile({
+        ...state.repo,
+        text,
+        baseSha: state.sha || ""
+      }),
+      'GitHub Commit'
+    );
+
+    // Handle response
+    const newSha = res?.content?.sha;
+    if (!newSha) {
+      throw new Error('Invalid response from GitHub commit');
+    }
+
+    // Update state and UI
     state.sha = newSha;
     setDirty(false);
     renderApps();
-    const shortSha = newSha.slice(0,8);
+    
+    const shortSha = newSha.slice(0, 8);
     setStatus(`Committed repoversion.json @ ${shortSha}`, 7000);
-    showToast("Manifest committed to GitHub", { variant: "success", meta: shortSha ? `SHA ${shortSha}` : "" });
-  }catch(err){
-    console.error(err);
-    setStatus(String(err), 6000);
-    alert(`Commit error:\n${err.message || err}`);
-    showToast("Commit failed", { variant: "error", meta: err.message || "See console for details." });
-  }finally{
+    showToast("Manifest committed to GitHub", {
+      variant: "success",
+      meta: shortSha ? `SHA ${shortSha}` : ""
+    });
+
+  } catch (error) {
+    ErrorHandler.showError(error, 'Commit');
+  } finally {
     commitInFlight = false;
+    const btn = $("#btnCommit");
     setButtonBusy(btn, false);
   }
 }
@@ -2331,7 +2873,7 @@ function refreshSettingsSnapshot(){
   if (tokenStoredVia) tokenStoredVia.textContent = hasToken ? sourceLabel : "--";
   if (tokenStoredMeta) tokenStoredMeta.textContent = hasToken ? (stored?.source || "local") : "n/a";
   if (tokenAccount) tokenAccount.textContent = hasVerification ? (info.login || info.name || "--") : "--";
-  if (tokenAccountMeta) tokenAccountMeta.textContent = hasVerification && accountParts.length ? accountParts.join(" | ") : "—";
+  if (tokenAccountMeta) tokenAccountMeta.textContent = hasVerification && accountParts.length ? accountParts.join(" | ") : "?";
   if (tokenVerified) tokenVerified.textContent = hasVerification ? verifiedText : (info?.error ? "Failed" : "Never");
   if (tokenVerifiedMeta) {
     if (info?.error) tokenVerifiedMeta.textContent = "Verification failed. Check token scopes.";
@@ -2587,8 +3129,8 @@ function applyVerifiedTokenStatus(info){
       const friendlySource = sourceLabels[info.source] || (info.source ? info.source : "Unknown");
       details.innerHTML = [
         renderTile("Stored via", friendlySource, { meta: info.source || "local" }),
-        renderTile("Scopes", info.scopes?.length ? info.scopes.join(" | ") : "None reported")
-      ].join(" | ");
+        renderTile("Scopes", info.scopes?.length ? info.scopes.join(", ") : "None reported")
+      ].join("");
     }
     refreshSettingsSnapshot();
     return;
@@ -2605,10 +3147,10 @@ function applyVerifiedTokenStatus(info){
     if (info.type) accountMeta.push(info.type);
     const friendlySource = sourceLabels[info.source] || (info.source ? info.source : "Unknown");
     const scopesHtml = info.scopes?.length
-      ? info.scopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join(" | ")
+      ? info.scopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join("")
       : "<span class=\"tile-meta\">None reported</span>";
     const acceptedHtml = info.acceptedScopes?.length
-      ? info.acceptedScopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join(" | ")
+      ? info.acceptedScopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join("")
       : "<span class=\"tile-meta\">None</span>";
     const metaTiles = [
       renderTile("Account", info.login || info.name || "Unknown", {
@@ -2620,7 +3162,7 @@ function applyVerifiedTokenStatus(info){
       renderTile("Endpoint expects", acceptedHtml, {
         rawValue: true
       })
-    ].join(" | ");
+    ].join("");
     const scopesTile = renderTile("Token scopes", scopesHtml, {
       rawValue: true,
       className: "tile-scopes"
@@ -2668,7 +3210,7 @@ function applyDataStatusToOnboarding(status){
       status.paths?.settings ? renderTile("Settings JSON", status.paths.settings) : "",
       status.paths?.tokenMeta ? renderTile("Token metadata", status.paths.tokenMeta) : "",
       status.storePath ? renderTile("Electron store", status.storePath) : ""
-    ].filter(Boolean).join(" | ");
+    ].filter(Boolean).join("");
   }
   refreshSettingsSnapshot();
 }
@@ -2844,7 +3386,7 @@ async function verifyToken(){
     dialog.dataset.state = "loading";
     setVerifyIcon(ctx.icon, "loading");
   }
-  if (status) status.textContent = "Contacting GitHub…..";
+  if (status) status.textContent = "Contacting GitHub?..";
   setVerifyLoading(ctx, true);
   showVerifyMessage(ctx, "", null);
   fillVerifyDetails(ctx, []);
@@ -3230,6 +3772,7 @@ async function copyAboutDetails(){
 // -------- Bind all
 function bind(){
   bindTitlebar();
+  bindDialogFocusManagement();
   bindTabs();
   switchEditorSection(state.editorSection || "section-dataset", { restore: true });
   bindSidebarResize();
@@ -3311,6 +3854,41 @@ function bind(){
     });
   }
 
+  // Commit confirmation dialog
+  const commitDialog = $("#commitConfirmDialog");
+  if (commitDialog) {
+    commitDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      settleCommitConfirmation(false);
+    });
+    commitDialog.addEventListener("close", () => {
+      if (commitConfirmState.resolve) settleCommitConfirmation(false);
+    });
+  }
+  const commitConfirmClose = $("#commitConfirmClose");
+  if (commitConfirmClose) commitConfirmClose.addEventListener("click", () => {
+    settleCommitConfirmation(false);
+  });
+  const commitConfirmCancel = $("#commitConfirmCancel");
+  if (commitConfirmCancel) commitConfirmCancel.addEventListener("click", () => {
+    settleCommitConfirmation(false);
+  });
+  const commitConfirmApprove = $("#commitConfirmApprove");
+  if (commitConfirmApprove) commitConfirmApprove.addEventListener("click", () => {
+    settleCommitConfirmation(true);
+  });
+  const commitConfirmAsk = $("#commitConfirmAsk");
+  if (commitConfirmAsk) {
+    commitConfirmAsk.addEventListener("change", () => {
+      settingsPrefs.confirmBeforeCommit = commitConfirmAsk.checked;
+      applySettingsPreferences();
+      const messages = SETTINGS_TOGGLE_MESSAGES.confirmBeforeCommit;
+      if (messages) {
+        const variant = commitConfirmAsk.checked ? "on" : "off";
+        setStatus(messages[variant] || "Preference updated.", 2600);
+      }
+    });
+  }
   // Sidebar actions
   $("#btnAddApp").addEventListener("click", addNewApp);
   $("#btnDelApp").addEventListener("click", deleteApp);
@@ -3751,35 +4329,269 @@ function duplicateApp(){
   setStatus("Duplicated app.", 3000);
 }
 
+// Repository search
+function searchRepositories(query) {
+  const results = []; // This would be populated from your data source
+  return results;
+}
+
+const searchRepo = Performance.debounce(async function() {
+  const searchInput = $('#searchbox')?.value.trim();
+  const resultsList = $('#repoList');
+  
+  if (!resultsList) return;
+  
+  if (!searchInput) {
+    resultsList.innerHTML = '';
+    return;
+  }
+
+  try {
+    const results = await searchRepositories(searchInput);
+    
+    if (!results.length) {
+      resultsList.innerHTML = '<div class="search-empty">No matching repositories found</div>';
+      return;
+    }
+
+    resultsList.innerHTML = results.map(repo => `
+      <div class="repo-item" data-repo-id="${escapeHtml(repo.id)}">
+        <div class="repo-name">${escapeHtml(repo.name)}</div>
+        ${repo.description ? `<div class="repo-description">${escapeHtml(repo.description)}</div>` : ''}
+      </div>
+    `).join('');
+
+  } catch (error) {
+    ErrorHandler.showError(error, 'Repository Search');
+    resultsList.innerHTML = '<div class="search-error">Search failed. Please try again.</div>';
+  }
+}, 350); // Debounce wait time of 350ms
+
+// -------- Update management
+async function checkForNewVersion(options = {}) {
+  const { notify = true } = options;
+  try {
+    const release = await fetchLatestRelease();
+    if (!release) return false;
+    const versionConfig = await syncVersionConfig({ silent: true });
+
+    // Determine local numeric code as in the main check flow
+    let localInfo = null;
+    try { localInfo = await vt.app.info(); } catch (e) { localInfo = null; }
+    const semverToCode = (v) => {
+      if (!v) return null;
+      try {
+        const parts = String(v).replace(/^v/i, '').split('-')[0].split('.').map(p => Number.parseInt(p || '0', 10));
+        const [maj = 0, min = 0, pat = 0] = parts.concat([0,0,0]).slice(0,3);
+        return (Number(maj) * 100000) + (Number(min) * 1000) + Number(pat);
+      } catch { return null; }
+    };
+    let localCode = null;
+    if (localInfo) {
+      if (Number.isFinite(Number(localInfo.code))) localCode = Number(localInfo.code);
+      else if (Number.isFinite(Number(localInfo.build))) localCode = Number(localInfo.build);
+      else if (Number.isFinite(Number(localInfo.versionCode))) localCode = Number(localInfo.versionCode);
+      if (!localCode && localInfo.version) localCode = semverToCode(localInfo.version);
+    }
+    if (!localCode && versionConfig) {
+      if (Number.isFinite(Number(versionConfig.code))) localCode = Number(versionConfig.code);
+      if (!localCode && versionConfig.version) localCode = semverToCode(versionConfig.version);
+    }
+
+    const remoteCode = Number.isFinite(Number(release.feedCode)) ? Number(release.feedCode) : null;
+    if (remoteCode != null && localCode != null) {
+      if (remoteCode > localCode) {
+        if (notify) {
+          showToast("Update Available", {
+            variant: "info",
+            meta: `Build ${remoteCode} is available`,
+            duration: 10000,
+            actions: [{ label: "Update", onClick: () => openUpdateDialog(release) }]
+          });
+        }
+        return true;
+      }
+      return false;
+    }
+
+    // fall back to version string comparison
+    const localVersion =
+      updateState.currentVersion
+      || (versionConfig && versionConfig.version ? normalizeVersionTag(versionConfig.version) : null)
+      || (localInfo && localInfo.version ? normalizeVersionTag(localInfo.version) : null);
+    const latestRaw = release.tag_name || release.name || "";
+    const latestNormalized = normalizeVersionTag(latestRaw);
+    if (latestNormalized && localVersion) {
+      const newer = compareSemver(latestNormalized, localVersion) > 0;
+      if (newer && notify) {
+        showToast("Update Available", {
+          variant: "info",
+          meta: `Version ${formatVersionDisplay(latestNormalized)} is available`,
+          duration: 10000,
+          actions: [{ label: "Update", onClick: () => openUpdateDialog(release) }]
+        });
+      }
+      return newer;
+    }
+    return false;
+  } catch (error) {
+    console.error('Version check failed:', error);
+    return false;
+  }
+}
+
+async function bootstrapUpdates() {
+  const dialog = $("#updateDialog");
+  const configuredApp = document.body?.dataset?.updateApp || dialog?.dataset?.updateApp || UPDATE_DEFAULT_APP;
+  updateState.feedApp = configuredApp || UPDATE_DEFAULT_APP;
+  updateState.feedUrl = `${UPDATE_FEED_JSON_URL}${encodeURIComponent(updateState.feedApp)}`;
+  await syncVersionConfig({ silent: true });
+  setUpdateStatus(updateState.status);
+  refreshUpdateDetails();
+  
+  // Check for updates on startup
+  await checkForNewVersion({ notify: false });
+
+  try {
+    const info = await vt.app.info();
+    if (info?.name && (!updateState.appName || updateState.appName === "Version Tracker")) {
+      updateState.appName = info.name;
+    }
+    if (info?.version && !updateState.currentVersionRaw) {
+      updateState.currentVersionRaw = info.version;
+      updateState.currentVersion = normalizeVersionTag(info.version);
+    }
+    if (info?.platform) updateState.platform = info.platform;
+    const repo = deriveUpdateRepo(info);
+    updateState.repo = repo;
+    updateState.repoHtmlUrl = repoToHtmlUrl(repo);
+    updateState.releaseUrl = repoReleaseUrl(repo);
+  } catch (err) {
+    console.error("Failed to load app info for updates:", err);
+    updateState.repo = { ...UPDATE_FALLBACK_REPO };
+    updateState.repoHtmlUrl = repoToHtmlUrl(updateState.repo);
+    updateState.releaseUrl = repoReleaseUrl(updateState.repo);
+  }
+  
+  refreshUpdateDetails();
+  await checkForUpdates({ userInitiated: false }).catch((err) => {
+    console.error("Background update check failed:", err);
+  });
+}
+
 // -------- Init
 function initBlank(){
   state.data = { schemaVersion: 2, generated: isoNow(), contact: "", apps: [] };
   state.currentIndex = null; renderApps(); clearForm(); resetWizardForm();
 }
 
+// Version checking functionality
+const VersionChecker = {
+  timer: null,
+  isChecking: false,
+  
+  async check() {
+    if (this.isChecking) return null;
+    this.isChecking = true;
+    try {
+      const result = await checkForNewVersion();
+      return result;
+    } catch (err) {
+      console.error('Version check failed:', err);
+      return false;
+    } finally {
+      this.isChecking = false;
+    }
+  },
+  
+  async updateLastCheckTime() {
+    try {
+      const config = await readVersionConfig({ silent: true });
+      if (!config) return;
+      config.lastUpdateCheck = new Date().toISOString();
+      await vt.file.writeJSON(VERSION_CONFIG_PATH, config);
+    } catch (err) {
+      console.error('Failed to update last check time:', err);
+    }
+  },
+  
+  async start() {
+    try {
+      // Clear any existing timer
+      this.stop();
+
+      // Get check interval from config
+      const config = await readVersionConfig({ silent: true });
+      if (config) applyVersionConfig(config);
+      const interval = resolveUpdateCheckInterval(config?.minimumUpdateCheckInterval);
+      
+      // Set up periodic checks
+      this.timer = window.setInterval(async () => {
+        try {
+          const ran = await this.check();
+          if (ran !== null) await this.updateLastCheckTime();
+        } catch (err) {
+          console.error('Failed to run scheduled version check:', err);
+        }
+      }, interval);
+      
+      // Do initial check
+      const ran = await this.check();
+      if (ran !== null) await this.updateLastCheckTime();
+      
+    } catch (err) {
+      console.error('Failed to start version checker:', err);
+    }
+  },
+  
+  stop() {
+    if (this.timer) {
+      window.clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.isChecking = false;
+  }
+};
+
 document.addEventListener("DOMContentLoaded", async () => {
   loadSettingsPreferences();
   applySettingsPreferences({ skipSave: true });
   bind();
   initBlank();
+  await syncVersionConfig();
+  refreshUpdateDetails();
+  // Attempt to load stored token early so the settings snapshot shows correct state immediately
+  try {
+    const stored = await vt.token.get();
+    if (stored) applyStoredTokenStatus(stored);
+  } catch (err) {
+    console.warn('Early token load failed:', err);
+  }
   refreshSettingsSnapshot();
+  
+  // Start version checking
+  await VersionChecker.start();
+  
+  // Fetch data immediately
+  try {
+    const { token } = await vt.token.get();
+    if (token) {
+      await fetchFromGitHub();
+    } else {
+      showToast("GitHub Token Required", {
+        variant: "warning",
+        meta: "Please configure your GitHub token to fetch data",
+        duration: 8000
+      });
+    }
+  } catch (error) {
+    console.error("Initial fetch failed:", error);
+  }
+  
   await bootstrapUpdates();
   await loadOnboardingPreferences();
   await refreshOnboardingStatus({ includeVerify: false });
   if (!onboarding.preferences?.skipOnboarding) {
     await openOnboardingDialog();
   }
-  try {
-    const { token } = await vt.token.get();
-    if (token && settingsPrefs.autoFetchOnLaunch !== false) fetchFromGitHub();
-  } catch {}
 });
-
-
-
-
-
-
-
-
-

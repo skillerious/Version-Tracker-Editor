@@ -321,6 +321,23 @@ ipcMain.handle("file:openJSON", async () => {
   return { path: filePaths[0], text };
 });
 
+// Read a JSON file from the application's directory (synchronous path resolution)
+ipcMain.handle("file:readJSON", async (_e, relPath) => {
+  if (!relPath || typeof relPath !== "string") throw new Error("file:readJSON requires a relative path string");
+  const abs = path.join(__dirname, relPath);
+  const text = await fs.readFile(abs, "utf-8");
+  try { return JSON.parse(text); } catch (err) { throw new Error(`Invalid JSON in ${relPath}: ${err.message}`); }
+});
+
+// Write a JSON file to the application's directory. In packaged apps this may fail due to permissions.
+ipcMain.handle("file:writeJSON", async (_e, relPath, obj) => {
+  if (!relPath || typeof relPath !== "string") throw new Error("file:writeJSON requires a relative path string");
+  const abs = path.join(__dirname, relPath);
+  const text = JSON.stringify(obj, null, 2);
+  await fs.writeFile(abs, text, "utf-8");
+  return { path: abs };
+});
+
 ipcMain.handle("file:saveJSON", async (_e, text) => {
   const win = BrowserWindow.getFocusedWindow();
   const { canceled, filePath } = await dialog.showSaveDialog(win, {

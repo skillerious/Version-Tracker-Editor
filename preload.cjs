@@ -15,7 +15,10 @@ contextBridge.exposeInMainWorld("vt", {
   },
   file: {
     openJSON: () => ipcRenderer.invoke("file:openJSON"),
-    saveJSON: (text) => ipcRenderer.invoke("file:saveJSON", text)
+    saveJSON: (text) => ipcRenderer.invoke("file:saveJSON", text),
+    // Convenience read/write by relative path from app directory
+    readJSON: (relPath) => ipcRenderer.invoke("file:readJSON", relPath),
+    writeJSON: (relPath, obj) => ipcRenderer.invoke("file:writeJSON", relPath, obj)
   },
   shell: {
     open: (url) => ipcRenderer.invoke("shell:openExternal", url)

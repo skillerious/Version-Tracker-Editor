@@ -9,13 +9,13 @@
                  script-src 'self';
                  style-src 'self';
                  img-src 'self' data:;
-                 connect-src 'self' https://api.github.com;
+                 connect-src 'self' https://api.github.com https://skillerious.github.io;
                  font-src 'self';
                  object-src 'none';
                  base-uri 'none'">
   <link rel="stylesheet" href="styles.css" />
 </head>
-<body>
+<body data-update-app="versiontrackereditor">
   <!-- Titlebar -->
   <div id="titlebar" class="drag">
     <div class="tb-left">
@@ -406,8 +406,8 @@
       <!-- Settings Tab -->
       <div id="tab-settings" class="tabpage">
         <div class="notice notice-muted tips-optional" data-icon="S">
-          <strong>Workspace settings</strong>
-          <p>Configure repository access, token storage, automation, and appearance so the editor fits your release workflow.</p>
+          <strong><img src="assets/infinate.svg" alt="" class="settings-inline-icon" aria-hidden="true" role="presentation">Workspace settings</strong>
+         <p>Configure repository access, token storage, automation, and appearance so the editor fits your release workflow.</p>
         </div>
 
         <div class="settings-layout">
@@ -850,11 +850,11 @@
         <p id="updateDialogLead">Download the latest Version Tracker release to get new features and fixes.</p>
       </div>
     </header>
-    <div class="update-progress" id="updateProgress" role="status" aria-live="polite" hidden>
+    <div class="update-progress" id="updateProgress" role="status" aria-live="polite">
       <div class="update-progress-track" aria-hidden="true">
         <div class="update-progress-bar"></div>
       </div>
-      <span class="update-progress-label" id="updateProgressLabel">Checking for updates…</span>
+      <span class="update-progress-label" id="updateProgressLabel">Checking for updates...</span>
     </div>
     <div class="update-body">
       <section class="update-section">
@@ -921,6 +921,61 @@
           </span>
           <span class="btn-label">Download update</span>
         </button>
+      </div>
+    </footer>
+  </dialog>
+
+
+  <!-- Commit confirmation dialog -->
+  <dialog id="commitConfirmDialog" class="dialog-card commit-dialog" aria-labelledby="commitConfirmTitle" aria-describedby="commitConfirmLead">
+    <div class="commit-header">
+      <div class="commit-header-icon" aria-hidden="true">
+        <svg viewBox="0 0 28 28" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="14" cy="14" r="10.5" opacity=".35"></circle>
+          <path d="M9.8 14.2 13.1 17.4 18.4 10.6"></path>
+        </svg>
+      </div>
+      <div class="commit-header-copy">
+        <h3 id="commitConfirmTitle">Ready to commit?</h3>
+        <p id="commitConfirmLead">Review the target details before publishing your manifest to GitHub.</p>
+      </div>
+      <button type="button" class="commit-close" id="commitConfirmClose" aria-label="Cancel commit">
+        <span aria-hidden="true"></span>
+      </button>
+    </div>
+    <div class="commit-body">
+      <div class="commit-summary">
+        <div class="commit-summary-row">
+          <span class="commit-summary-label">Target</span>
+          <span class="commit-summary-value" id="commitConfirmTarget">owner/repo@branch</span>
+        </div>
+        <div class="commit-summary-row">
+          <span class="commit-summary-label">Repository</span>
+          <span class="commit-summary-value" id="commitConfirmRepo">owner/repo</span>
+        </div>
+        <div class="commit-summary-row">
+          <span class="commit-summary-label">Branch</span>
+          <span class="commit-summary-value" id="commitConfirmBranch">main</span>
+        </div>
+        <div class="commit-summary-row">
+          <span class="commit-summary-label">Apps tracked</span>
+          <span class="commit-summary-value" id="commitConfirmApps">0 apps</span>
+        </div>
+        <div class="commit-summary-row">
+          <span class="commit-summary-label">Current SHA</span>
+          <span class="commit-summary-value" id="commitConfirmSha">--</span>
+        </div>
+      </div>
+      <p class="commit-tip">Ensure the dataset reflects the changes you intend to publish. You can disable this prompt below if you prefer one-click commits.</p>
+    </div>
+    <footer class="commit-footer">
+      <label class="commit-remember">
+        <input type="checkbox" id="commitConfirmAsk" checked />
+        <span>Ask before committing</span>
+      </label>
+      <div class="commit-actions">
+        <button type="button" class="ghost" id="commitConfirmCancel">Cancel</button>
+        <button type="button" class="ok" id="commitConfirmApprove">Commit now</button>
       </div>
     </footer>
   </dialog>
@@ -1025,3 +1080,10 @@
   <script src="renderer.js" defer></script>
 </body>
 </html>
+
+
+
+
+
+
+
