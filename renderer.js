@@ -989,8 +989,8 @@ function showToast(message, options = {}){
     const img = document.createElement("img");
     img.src = iconUrl;
     img.alt = "";
-    img.width = 18;
-    img.height = 18;
+    img.width = 28;
+    img.height = 28;
     img.decoding = "async";
     img.loading = "lazy";
     iconEl.append(img);
@@ -1360,9 +1360,11 @@ function sanitizeHistory(entries = [], stableTrack = null){
   return list;
 }
 function updateHistoryRemoveState(){
-  const hasRows = $$("#historyTable tbody tr").length > 0;
+  const rows = $$("#historyTable tbody tr");
+  const hasRows = rows.length > 0;
+  const hasSelection = rows.some(r => r.classList.contains("selected"));
   const btn = $("#btnHistRemove");
-  if (btn) btn.disabled = !hasRows;
+  if (btn) btn.disabled = !hasRows || !hasSelection;
 }
 function selectHistoryRow(row){
   $$("#historyTable tbody tr").forEach(r => r.classList.toggle("selected", r === row));
@@ -4214,7 +4216,8 @@ function bind(){
     const rows = $$("#historyTable tbody tr");
     if (!rows.length) return;
     const sel = rows.find(r => r.classList.contains("selected"));
-    removeHistoryRow(sel || rows.at(-1));
+    if (!sel) return;
+    removeHistoryRow(sel);
   });
   $("#historyTable").addEventListener("click", (e) => {
     const tr = e.target.closest("tr"); if (!tr) return;
