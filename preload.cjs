@@ -39,6 +39,13 @@ contextBridge.exposeInMainWorld("vt", {
     minimize: () => ipcRenderer.send("win:minimize"),
     maximizeToggle: () => ipcRenderer.invoke("win:maximizeToggle"),
     isMaximized: () => ipcRenderer.invoke("win:isMaximized"),
-    close: () => ipcRenderer.send("win:close")
+    close: () => ipcRenderer.send("win:close"),
+    forceClose: () => ipcRenderer.send("win:force-close"),
+    onBeforeClose: (callback) => {
+      if (typeof callback !== "function") return () => {};
+      const listener = () => callback();
+      ipcRenderer.on("app:before-close", listener);
+      return () => ipcRenderer.removeListener("app:before-close", listener);
+    }
   }
 });

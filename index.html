@@ -176,7 +176,7 @@
                 <label class="field"><span>URL</span><input id="stUrl" type="url" placeholder="https://release.example" /></label>
                 <label class="field"><span>Download</span><input id="stDownload" type="url" placeholder="https://asset.example" /></label>
               </div>
-              <label class="field"><span>Notes</span><textarea id="stNotes" rows="4" placeholder="Short notes"></textarea></label>
+              <label class="field"><span>Notes - Markdown Compatible</span><textarea id="stNotes" rows="4" placeholder="Short notes"></textarea></label>
               <div class="row gap">
                 <button id="stCodePlus" class="ghost">Bump code +1</button>
                 <button id="stCodeSuggest" class="ghost">Suggest code from history</button>
@@ -204,7 +204,7 @@
                   <label class="field"><span>URL</span><input id="btUrl" type="url" placeholder="https://beta.example" /></label>
                   <label class="field"><span>Download</span><input id="btDownload" type="url" placeholder="https://download.example" /></label>
                 </div>
-                <label class="field"><span>Notes</span><textarea id="btNotes" rows="4" placeholder="Optional notes"></textarea></label>
+                <label class="field"><span>Notes - Markdown Compatible</span><textarea id="btNotes" rows="4" placeholder="Optional notes"></textarea></label>
                 <div class="row gap">
                   <button id="btCodePlus" class="ghost">Bump code +1</button>
                   <button id="btCodeSuggest" class="ghost">Suggest code from history</button>
@@ -978,6 +978,54 @@
         <button type="button" class="ok" id="commitConfirmApprove">Commit now</button>
       </div>
     </footer>
+  </dialog>
+
+  <!-- Exit confirmation dialog -->
+  <dialog id="exitConfirmDialog" class="dialog-card exit-dialog" aria-labelledby="exitConfirmTitle" aria-describedby="exitConfirmLead">
+    <div class="exit-layout">
+      <section class="exit-illustration" aria-hidden="true">
+        <div class="exit-icon">
+          <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="9" r="5"></circle>
+            <circle cx="21" cy="23" r="5"></circle>
+            <path d="M11 14v4a6 6 0 0 0 6 6h4"></path>
+          </svg>
+        </div>
+        <div class="exit-illustration-copy">
+          <span class="exit-chip">Pending commit</span>
+          <p>Manifest updates are still local. Publish them before you leave to keep the repository in sync.</p>
+        </div>
+      </section>
+      <section class="exit-body">
+        <header class="exit-header">
+          <h3 id="exitConfirmTitle">You still have uncommitted changes</h3>
+          <p id="exitConfirmLead">Commit your updates now or quit without publishing them to the repository.</p>
+        </header>
+        <div class="exit-summary" role="presentation">
+          <div class="exit-summary-item">
+            <span class="exit-summary-label">Repository</span>
+            <span class="exit-summary-value" id="exitSummaryRepo">owner/repo</span>
+          </div>
+          <div class="exit-summary-item">
+            <span class="exit-summary-label">Branch</span>
+            <span class="exit-summary-value" id="exitSummaryBranch">main</span>
+          </div>
+          <div class="exit-summary-item">
+            <span class="exit-summary-label">Changes</span>
+            <span class="exit-summary-value" id="exitSummaryChanges">Manifest edits pending commit</span>
+          </div>
+          <div class="exit-summary-item">
+            <span class="exit-summary-label">Last commit</span>
+            <span class="exit-summary-value" id="exitSummarySha">--</span>
+          </div>
+        </div>
+        <div class="exit-actions">
+          <button type="button" class="ok" id="exitCommitAndQuit">Commit and exit</button>
+          <button type="button" class="ghost danger" id="exitQuitWithoutCommit">Quit without committing</button>
+          <button type="button" class="ghost" id="exitStay">Stay in editor</button>
+        </div>
+      </section>
+    </div>
   </dialog>
 
   <!-- About dialog -->

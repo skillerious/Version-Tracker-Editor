@@ -976,14 +976,25 @@ function dismissToast(toast){
 function showToast(message, options = {}){
   const stack = $("#toastStack");
   if (!stack) return null;
-  const { variant = "info", duration = 4200, meta = "" } = options;
+  const { variant = "info", duration = 4200, meta = "", icon: iconUrl = "" } = options;
   const toast = document.createElement("div");
   toast.className = `toast toast-${variant}`;
   toast.setAttribute("role", "status");
   toast.dataset.toastId = String(++toastState.nextId);
 
-  const icon = document.createElement("span");
-  icon.className = "toast-icon";
+  const iconEl = document.createElement("span");
+  iconEl.className = "toast-icon";
+  if (iconUrl) {
+    iconEl.classList.add("toast-icon-has-image");
+    const img = document.createElement("img");
+    img.src = iconUrl;
+    img.alt = "";
+    img.width = 18;
+    img.height = 18;
+    img.decoding = "async";
+    img.loading = "lazy";
+    iconEl.append(img);
+  }
 
   const body = document.createElement("div");
   body.className = "toast-body";
@@ -1007,7 +1018,7 @@ function showToast(message, options = {}){
   close.textContent = "\u00D7";
   close.addEventListener("click", () => dismissToast(toast));
 
-  toast.append(icon, body, close);
+  toast.append(iconEl, body, close);
   stack.append(toast);
 
   requestAnimationFrame(() => toast.classList.add("is-visible"));
@@ -1053,13 +1064,55 @@ function bumpVersion(v, kind){
   else { pat++; }
   return `${maj}.${min}.${pat}`;
 }
-function maxHistoryCode(){ return collectHistory().reduce((m, r) => Math.max(m, parseInt(r.code||0,10)), 0); }
+function sanitizeCodeValue(value){
+  const str = String(value ?? "").trim();
+  if (!str) return 0;
+  const numeric = Number.parseInt(str, 10);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, numeric);
+}
+function setCodeInputValue(input, value){
+  if (!input) return;
+  input.value = String(sanitizeCodeValue(value));
+}
+function incrementTrackCode(prefix, delta = 1){
+  const input = $(`#${prefix}Code`);
+  if (!input) return 0;
+  const amount = Number(delta);
+  const step = Number.isFinite(amount) && Math.trunc(amount) !== 0 ? Math.abs(Math.trunc(amount)) : 1;
+  const next = sanitizeCodeValue(input.value) + step;
+  input.value = String(next);
+  return next;
+}
+function suggestTrackCode(prefix){
+  const input = $(`#${prefix}Code`);
+  if (!input) return 0;
+  const current = sanitizeCodeValue(input.value);
+  const historyNext = maxHistoryCode() + 1;
+  let otherNext = 0;
+  const otherInput = $(`#${prefix === "st" ? "bt" : "st"}Code`);
+  if (otherInput) otherNext = sanitizeCodeValue(otherInput.value) + 1;
+  const next = Math.max(current + 1, historyNext, otherNext);
+  input.value = String(next);
+  return next;
+}
+function enforceCodeInputValue(input){
+  if (!input) return;
+  const normalized = sanitizeCodeValue(input.value);
+  if (String(normalized) !== String(input.value).trim()) {
+    input.value = String(normalized);
+  }
+}
+function maxHistoryCode(){ return collectHistory().reduce((m, r) => Math.max(m, sanitizeCodeValue(r.code)), 0); }
 function todayDate(){ return new Date().toISOString().slice(0,10); }
 
 let historySelectionKey = null;
 let fetchInFlight = false;
 let commitInFlight = false;
 let commitConfirmState = { promise: null, resolve: null };
+let exitIntentActive = false;
+let exitCommitInProgress = false;
+let exitAwaitingExistingCommit = false;
 
 function buildCommitTargetLabel(){
   const repo = state.repo || UPDATE_FALLBACK_REPO;
@@ -1421,7 +1474,7 @@ function suggestHistoryEntry(){
   const stable = collectTrack("st");
   const current = collectHistoryRows().map(({ row: _, ...rest }) => rest);
   const normalized = sanitizeHistory(current, stable);
-  const highestCode = normalized.reduce((max, entry) => Math.max(max, entry.code || 0), Number.isFinite(stable.code) ? stable.code : 0);
+  const highestCode = normalized.reduce((max, entry) => Math.max(max, sanitizeCodeValue(entry.code)), sanitizeCodeValue(stable.code));
   let version = "";
   if (stable.version && !normalized.some(entry => entry.version === stable.version)) {
     version = stable.version;
@@ -2167,7 +2220,7 @@ function populateForm(app){
 }
 function collectTrack(prefix){
   const version = $(`#${prefix}Version`).value.trim();
-  const code = parseInt($(`#${prefix}Code`).value || "0", 10);
+  const code = sanitizeCodeValue($(`#${prefix}Code`).value);
   const date = $(`#${prefix}Date`).value || (version ? new Date().toISOString().slice(0,10) : "");
   const url = $(`#${prefix}Url`).value.trim();
   const download = $(`#${prefix}Download`).value.trim();
@@ -2426,9 +2479,10 @@ async function fetchFromGitHub(){
     // Show success messages
     const shortSha = sha.slice(0,8);
     setStatus(`Fetched repoversion.json @ ${shortSha}`, 6000);
-    showToast("Repository refreshed", { 
-      variant: "success", 
-      meta: shortSha ? `SHA ${shortSha}` : "" 
+    showToast("Repository refreshed", {
+      variant: "success",
+      icon: "assets/toastRepositoryRefreshed.png",
+      meta: shortSha ? `SHA ${shortSha}` : ""
     });
 
   } catch (error) {
@@ -2566,7 +2620,118 @@ async function commitToGitHub(){
     commitInFlight = false;
     const btn = $("#btnCommit");
     setButtonBusy(btn, false);
+    if (exitCommitInProgress && exitAwaitingExistingCommit) {
+      const stillPending = isCommitPromptNeeded() || state.formDirty;
+      if (!stillPending && exitIntentActive) {
+        forceCloseWindow();
+      } else {
+        exitCommitInProgress = false;
+        exitIntentActive = false;
+      }
+      exitAwaitingExistingCommit = false;
+    }
   }
+}
+function isCommitPromptNeeded(){
+  const commitBtn = $("#btnCommit");
+  return !!commitBtn && commitBtn.classList.contains("needs-commit");
+}
+function populateExitDialog(){
+  const repo = state.repo || {};
+  const owner = repo.owner || "";
+  const repoName = repo.repo || "";
+  const repoParts = [owner, repoName].filter(Boolean);
+  const repoLabel = repoParts.length ? repoParts.join("/") : "Not configured";
+  const repoEl = $("#exitSummaryRepo");
+  if (repoEl) repoEl.textContent = repoLabel;
+  const branchEl = $("#exitSummaryBranch");
+  if (branchEl) branchEl.textContent = repo.branch || "main";
+  const changesEl = $("#exitSummaryChanges");
+  if (changesEl) {
+    changesEl.textContent = state.formDirty
+      ? "Apply form changes before committing"
+      : "Manifest edits pending commit";
+  }
+  const shaEl = $("#exitSummarySha");
+  if (shaEl) shaEl.textContent = state.sha ? state.sha.slice(0, 8) : "No commit yet";
+  const lead = $("#exitConfirmLead");
+  if (lead) {
+    const friendlyRepo = repoParts.length ? repoParts.join("/") : "your configured repository";
+    lead.textContent = `Commit these updates to ${friendlyRepo} now or quit without publishing them.`;
+  }
+  const commitButton = $("#exitCommitAndQuit");
+  if (commitButton) commitButton.disabled = !!commitInFlight;
+}
+function closeExitDialog(options = {}){
+  const { resetIntent = false } = options;
+  const dialog = $("#exitConfirmDialog");
+  if (dialog?.open) dialog.close();
+  if (resetIntent) {
+    exitIntentActive = false;
+    exitCommitInProgress = false;
+    exitAwaitingExistingCommit = false;
+  }
+}
+function forceCloseWindow(){
+  closeExitDialog();
+  exitIntentActive = false;
+  exitCommitInProgress = false;
+  exitAwaitingExistingCommit = false;
+  if (vt?.win?.forceClose) vt.win.forceClose();
+  else if (vt?.win?.close) vt.win.close();
+}
+function handleWindowBeforeClose(){
+  if (exitCommitInProgress) return;
+  if (!isCommitPromptNeeded()) {
+    forceCloseWindow();
+    return;
+  }
+  exitIntentActive = true;
+  exitCommitInProgress = false;
+  exitAwaitingExistingCommit = false;
+  populateExitDialog();
+  const dialog = $("#exitConfirmDialog");
+  if (!dialog) {
+    forceCloseWindow();
+    return;
+  }
+  if (dialog.open) {
+    const primary = $("#exitCommitAndQuit");
+    if (primary && !primary.disabled) primary.focus();
+    return;
+  }
+  dialog.showModal();
+  const primary = $("#exitCommitAndQuit");
+  if (primary && !primary.disabled) primary.focus();
+}
+async function handleExitCommit(){
+  if (commitInFlight) {
+    closeExitDialog({ resetIntent: false });
+    exitIntentActive = true;
+    exitCommitInProgress = true;
+    exitAwaitingExistingCommit = true;
+    return;
+  }
+  exitIntentActive = true;
+  exitCommitInProgress = true;
+  exitAwaitingExistingCommit = false;
+  closeExitDialog({ resetIntent: false });
+  await commitToGitHub();
+  const stillPending = isCommitPromptNeeded() || state.formDirty;
+  if (!stillPending && exitIntentActive) {
+    forceCloseWindow();
+    return;
+  }
+  exitCommitInProgress = false;
+  exitIntentActive = false;
+  exitAwaitingExistingCommit = false;
+}
+function handleExitDiscard(){
+  closeExitDialog({ resetIntent: false });
+  forceCloseWindow();
+}
+function handleExitStay(){
+  closeExitDialog({ resetIntent: true });
 }
 async function openLocal(){
   const res = await vt.file.openJSON();
@@ -3776,6 +3941,24 @@ function bind(){
   switchEditorSection(state.editorSection || "section-dataset", { restore: true });
   bindSidebarResize();
   updateBreadcrumbsFromState();
+  if (!bind.beforeCloseBound && vt?.win?.onBeforeClose) {
+    vt.win.onBeforeClose(handleWindowBeforeClose);
+    bind.beforeCloseBound = true;
+  }
+  const exitDialog = $("#exitConfirmDialog");
+  if (exitDialog && !exitDialog.dataset.bound) {
+    exitDialog.dataset.bound = "1";
+    exitDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      handleExitStay();
+    });
+    const exitStay = $("#exitStay");
+    if (exitStay) exitStay.addEventListener("click", handleExitStay);
+    const exitDiscard = $("#exitQuitWithoutCommit");
+    if (exitDiscard) exitDiscard.addEventListener("click", handleExitDiscard);
+    const exitCommit = $("#exitCommitAndQuit");
+    if (exitCommit) exitCommit.addEventListener("click", () => { handleExitCommit(); });
+  }
 
   const shaBadge = $("#shaBadge");
   if (shaBadge) {
@@ -3962,19 +4145,42 @@ function bind(){
   $("#edAppId").addEventListener("input", updateIdPill);
   $("#stVersion").addEventListener("input", updateVerPills);
   $("#btVersion").addEventListener("input", updateVerPills);
+  ["#stCode", "#btCode"].forEach((selector) => {
+    const input = $(selector);
+    if (input) {
+      input.addEventListener("change", () => enforceCodeInputValue(input));
+      input.addEventListener("blur", () => enforceCodeInputValue(input));
+    }
+  });
 
   // Version bumpers
-  $("#stBumpBtn").addEventListener("click", () => { $("#stVersion").value = bumpVersion($("#stVersion").value, $("#stBumpKind").value); updateVerPills(); setFormDirty(true);});
-  $("#btBumpBtn").addEventListener("click", () => { $("#btVersion").value = bumpVersion($("#btVersion").value, $("#btBumpKind").value); updateVerPills(); setFormDirty(true);});
-  $("#stCodePlus").addEventListener("click", () => { $("#stCode").value = String(parseInt($("#stCode").value||"0",10)+1); setFormDirty(true);});
-  $("#btCodePlus").addEventListener("click", () => { $("#btCode").value = String(parseInt($("#btCode").value||"0",10)+1); setFormDirty(true);});
-  $("#stCodeSuggest").addEventListener("click", () => { $("#stCode").value = String(Math.max(parseInt($("#stCode").value||"0",10), maxHistoryCode()+1)); setFormDirty(true);});
-  $("#btCodeSuggest").addEventListener("click", () => { $("#btCode").value = String(Math.max(parseInt($("#btCode").value||"0",10), maxHistoryCode()+1)); setFormDirty(true);});
+  $("#stBumpBtn").addEventListener("click", () => {
+    $("#stVersion").value = bumpVersion($("#stVersion").value, $("#stBumpKind").value);
+    suggestTrackCode("st");
+    updateVerPills();
+    setFormDirty(true);
+  });
+  $("#btBumpBtn").addEventListener("click", () => {
+    $("#btVersion").value = bumpVersion($("#btVersion").value, $("#btBumpKind").value);
+    suggestTrackCode("bt");
+    updateVerPills();
+    setFormDirty(true);
+  });
+  $("#stCodePlus").addEventListener("click", () => { incrementTrackCode("st"); setFormDirty(true); });
+  $("#btCodePlus").addEventListener("click", () => { incrementTrackCode("bt"); setFormDirty(true); });
+  $("#stCodeSuggest").addEventListener("click", () => { suggestTrackCode("st"); setFormDirty(true); });
+  $("#btCodeSuggest").addEventListener("click", () => { suggestTrackCode("bt"); setFormDirty(true); });
 
   // Promote / Clone
   $("#btnPromote").addEventListener("click", () => {
     $("#stVersion").value = $("#btVersion").value;
-    $("#stCode").value = String(Math.max(parseInt($("#stCode").value||"0",10), parseInt($("#btCode").value||"0",10)));
+    const stCodeInput = $("#stCode");
+    const btCodeInput = $("#btCode");
+    const nextStableCode = Math.max(
+      sanitizeCodeValue(stCodeInput?.value),
+      sanitizeCodeValue(btCodeInput?.value)
+    );
+    setCodeInputValue(stCodeInput, nextStableCode);
     $("#stDate").value = $("#btDate").value;
     $("#stUrl").value = $("#btUrl").value;
     $("#stDownload").value = $("#btDownload").value;
@@ -4397,13 +4603,22 @@ async function checkForNewVersion(options = {}) {
       if (!localCode && versionConfig.version) localCode = semverToCode(versionConfig.version);
     }
 
+    const latestRaw = release.tag_name || release.name || "";
+    const latestNormalized = normalizeVersionTag(latestRaw);
+    const latestDisplay = latestNormalized
+      ? formatVersionDisplay(latestNormalized).replace(/^v/i, "V")
+      : "";
+
     const remoteCode = Number.isFinite(Number(release.feedCode)) ? Number(release.feedCode) : null;
     if (remoteCode != null && localCode != null) {
       if (remoteCode > localCode) {
         if (notify) {
           showToast("Update Available", {
             variant: "info",
-            meta: `Build ${remoteCode} is available`,
+            icon: "assets/toastUpdate.png",
+            meta: latestDisplay
+              ? `Version ${latestDisplay} is available`
+              : `Build ${remoteCode} is available`,
             duration: 10000,
             actions: [{ label: "Update", onClick: () => openUpdateDialog(release) }]
           });
@@ -4418,14 +4633,13 @@ async function checkForNewVersion(options = {}) {
       updateState.currentVersion
       || (versionConfig && versionConfig.version ? normalizeVersionTag(versionConfig.version) : null)
       || (localInfo && localInfo.version ? normalizeVersionTag(localInfo.version) : null);
-    const latestRaw = release.tag_name || release.name || "";
-    const latestNormalized = normalizeVersionTag(latestRaw);
     if (latestNormalized && localVersion) {
       const newer = compareSemver(latestNormalized, localVersion) > 0;
       if (newer && notify) {
         showToast("Update Available", {
           variant: "info",
-          meta: `Version ${formatVersionDisplay(latestNormalized)} is available`,
+          icon: "assets/toastUpdate.png",
+          meta: `Version ${latestDisplay} is available`,
           duration: 10000,
           actions: [{ label: "Update", onClick: () => openUpdateDialog(release) }]
         });

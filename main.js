@@ -115,6 +115,33 @@ function createWindow() {
     }
   });
 
+  let closingApproved = false;
+  const handleForceClose = (event) => {
+    const senderWindow = BrowserWindow.fromWebContents(event.sender);
+    if (senderWindow && senderWindow === win) {
+      closingApproved = true;
+      win.close();
+    }
+  };
+
+  win.on("close", (event) => {
+    if (closingApproved || win.webContents.isDestroyed()) return;
+    event.preventDefault();
+    try {
+      win.webContents.send("app:before-close");
+    } catch (error) {
+      console.warn("Failed to notify renderer before close:", error);
+      closingApproved = true;
+      win.close();
+    }
+  });
+
+  ipcMain.on("win:force-close", handleForceClose);
+
+  win.on("closed", () => {
+    ipcMain.removeListener("win:force-close", handleForceClose);
+  });
+
   win.loadFile("index.html");
   win.once("ready-to-show", () => {
     win.maximize();
