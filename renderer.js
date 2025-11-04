@@ -38,7 +38,7 @@ const ErrorHandler = {
   
   showError(error, context = '') {
     const message = this.logError(error, context);
-    showToast(message, { variant: "error" });
+    showToast(message, { variant: "error", icon: TOAST_ICONS.actionFailed });
     setStatus(message, 5000);
   },
 
@@ -988,7 +988,25 @@ const TOAST_ICONS = Object.freeze({
   repositoryRefreshed: "assets/toastRepositoryRefreshed.png",
   updateAvailable: "assets/toastUpdate.png",
   commit: "assets/commit.png",
-  datasetApplied: "assets/applied.png"
+  datasetApplied: "assets/applied.png",
+  prepareWorkspace: "assets/prepare.png",
+  actionFailed: "assets/toastActionFailed.png",
+  clipboardError: "assets/toastClipboardError.png",
+  clipboardSuccess: "assets/toastCopy.png",
+  previewRefreshed: "assets/toastPreview.png",
+  githubConnectionFailed: "assets/toastGithubError.png",
+  tokenRequired: "assets/toastTokenRequired.png",
+  validationFailed: "assets/toastValidation.png",
+  loadFailed: "assets/toastLoadFailed.png",
+  manifestLoaded: "assets/toastManifestLoaded.png",
+  manifestSaved: "assets/toastSaved.png",
+  workspaceOpened: "assets/toastWorkspaceOpen.png",
+  workspaceFailed: "assets/toastWorkspaceError.png",
+  folderError: "assets/toastFolderError.png",
+  tokenRemoved: "assets/toastTokenRemoved.png",
+  tokenRemovalFailed: "assets/toastTokenRemoved.png",
+  tokenEnv: "assets/toastEnvToken.png",
+  pendingChanges: "assets/toastPending.png"
 });
 const TOKEN_VERIFY_ICONS = {
   loading: `<svg viewBox="0 0 24 24" fill="none" role="presentation" focusable="false" class="spin"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2" opacity=".28"></circle><path d="M20.5 12a8.5 8.5 0 0 0-8.5-8.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path></svg>`,
@@ -1142,6 +1160,7 @@ let historySelectionKey = null;
 let fetchInFlight = false;
 let commitInFlight = false;
 let commitConfirmState = { promise: null, resolve: null };
+let tokenRemoveConfirmState = { promise: null, resolve: null };
 let exitIntentActive = false;
 let exitCommitInProgress = false;
 let exitAwaitingExistingCommit = false;
@@ -1314,13 +1333,13 @@ async function copyAppText(value, label, options = {}){
     if (options.silent !== true) {
       const meta = options.meta ?? (text.length > 64 ? `${text.slice(0, 61)}...` : text);
       setStatus(`${label} copied.`, 2400);
-      showToast(`${label} copied`, { variant: "info", meta });
+      showToast(`${label} copied`, { variant: "info", icon: TOAST_ICONS.clipboardSuccess, meta });
     }
     return true;
   } catch (err) {
     console.error("Copy failed:", err);
     setStatus("Copy failed.", 2600);
-    showToast("Clipboard error", { variant: "error", meta: err?.message || String(err) });
+    showToast("Clipboard error", { variant: "error", icon: TOAST_ICONS.clipboardError, meta: err?.message || String(err) });
     return false;
   }
 }
@@ -1572,7 +1591,11 @@ const APP_CONTEXT_ACTIONS = {
   "preview-app"(){
     const applied = applyPendingChanges({ updatePreview: true });
     if (state.tab !== "tab-preview") switchTab("tab-preview");
-    showToast("Preview refreshed", { variant: "info", meta: applied ? "Pending form changes were applied" : "Preview synced with current dataset" });
+    showToast("Preview refreshed", {
+      variant: "info",
+      icon: TOAST_ICONS.previewRefreshed,
+      meta: applied ? "Pending form changes were applied" : "Preview synced with current dataset"
+    });
   }
 };
 function runAppContextAction(action){
@@ -1585,7 +1608,7 @@ function runAppContextAction(action){
     }
   } catch (err) {
     console.error("Context action error:", err);
-    showToast("Action failed", { variant: "error", meta: err?.message || String(err) });
+    showToast("Action failed", { variant: "error", icon: TOAST_ICONS.actionFailed, meta: err?.message || String(err) });
   }
 }
 function setupAppContextMenu(){
@@ -2191,6 +2214,9 @@ function renderApps(options = {}){
 
   const fragment = document.createDocumentFragment();
   const apps = state.data.apps || [];
+  if (!apps.length) {
+    state.currentIndex = null;
+  }
   apps.forEach((app, idx) => {
     let li = existing.get(app.id);
     if (li) {
@@ -2207,6 +2233,15 @@ function renderApps(options = {}){
   });
 
   ul.replaceChildren(fragment);
+  const hasApps = apps.length > 0;
+  const hasSelection = hasApps && state.currentIndex != null && state.currentIndex >= 0;
+  ul.hidden = !hasApps;
+  const emptyState = $("#appsEmptyState");
+  if (emptyState) emptyState.hidden = hasApps;
+  const dupBtn = $("#btnDupApp");
+  if (dupBtn) dupBtn.disabled = !hasSelection;
+  const delBtn = $("#btnDelApp");
+  if (delBtn) delBtn.disabled = !hasSelection;
 
   refreshShaBadge();
   updateSelectedAppPill();
@@ -2875,6 +2910,7 @@ async function fetchFromGitHub(){
     if (!isConnected) {
       showToast("GitHub Connection Failed", {
         variant: "error",
+        icon: TOAST_ICONS.githubConnectionFailed,
         meta: "Please check your internet connection and try again",
         duration: 8000
       });
@@ -2963,36 +2999,157 @@ async function checkGitHubConnectivity() {
   }
 }
 
+function scopesAllowRepo(scopes){
+  if (!Array.isArray(scopes)) return false;
+  return scopes.some((scope) => {
+    if (typeof scope !== "string") return false;
+    const lower = scope.toLowerCase();
+    return (
+      lower === "repo" ||
+      lower === "public_repo" ||
+      lower === "contents:write" ||
+      lower === "contents" ||
+      lower === "contents:all"
+    );
+  });
+}
+
+async function ensureCommitTokenAvailable(){
+  let info = null;
+  try {
+    info = await vt.token.info();
+  } catch (err) {
+    console.error("Token info failed before commit:", err);
+  }
+
+  const openAndFocusTokenDialog = (statusMessage) => {
+    if (statusMessage) setStatus(statusMessage, 7000);
+    try {
+      openTokenDialog();
+    } catch (err) {
+      console.error("Failed to open token dialog:", err);
+    }
+  };
+
+  if (!info?.hasToken) {
+    showToast("GitHub token required", {
+      variant: "error",
+      icon: TOAST_ICONS.tokenRequired,
+      meta: "Store a token with Contents: read/write scope to continue."
+    });
+    openAndFocusTokenDialog("Store a GitHub token with Contents: read/write to commit.");
+    return false;
+  }
+
+  const scopesOk = scopesAllowRepo(info.scopes);
+  if (!scopesOk) {
+    const isEnv = info.source === "env";
+    showToast("Token lacks permissions", {
+      variant: "error",
+      icon: TOAST_ICONS.githubConnectionFailed,
+      meta: isEnv
+        ? "The GITHUB_TOKEN environment value does not expose Contents: read/write."
+        : "Update the stored token with Contents: read/write permissions."
+    });
+    openAndFocusTokenDialog(
+      isEnv
+        ? "Paste a personal access token with Contents: read/write to override the environment token."
+        : "Replace the stored token with one that has Contents: read/write permissions."
+    );
+    return false;
+  }
+
+  return true;
+}
+
+async function handleCommitFailure(error, context = {}){
+  console.error("GitHub commit failed:", {
+    error,
+    repository: {
+      owner: context.owner || state.repo?.owner,
+      repo: context.repo || state.repo?.repo,
+      branch: context.branch || state.repo?.branch,
+      path: context.path || state.repo?.path
+    }
+  });
+  const raw = error?.message || String(error);
+  const docMatch = raw.match(/Docs:\s*(https?:\S+)/i);
+  const docUrl = docMatch?.[1] || "";
+  const stripped = raw.replace(/Docs:\s*(https?:\S+)/i, "");
+  const lines = stripped.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lower = raw.toLowerCase();
+  let toastTitle = lines[0] || "Commit failed";
+  let statusMessage = toastTitle;
+  let meta = lines.slice(1).join(" ");
+  let icon = TOAST_ICONS.actionFailed;
+  let includeVerify = false;
+
+  if (docUrl) meta = meta ? `${meta} ${docUrl}` : docUrl;
+
+  if (lower.includes("no github token stored")) {
+    toastTitle = "GitHub token required";
+    statusMessage = "Commit blocked. Store a GitHub token first.";
+    meta = "Add a token with Contents: read/write scope, then try again.";
+    icon = TOAST_ICONS.tokenRequired;
+  } else if (lower.includes("bad credentials") || lower.includes("401")) {
+    toastTitle = "GitHub rejected the token";
+    statusMessage = "Commit blocked. The stored token appears to be invalid or expired.";
+    meta = docUrl ? `Generate a new token and try again. ${docUrl}` : "Generate a new token and try again.";
+    icon = TOAST_ICONS.githubConnectionFailed;
+    includeVerify = true;
+  } else if (lower.includes("resource not accessible") || lower.includes("forbidden")) {
+    toastTitle = "GitHub blocked the commit";
+    statusMessage = "Commit blocked. Grant this token Contents: read/write access.";
+    const guidance = "Ensure the token covers this repository with Contents: read/write permissions.";
+    meta = docUrl ? `${guidance} ${docUrl}` : guidance;
+    icon = TOAST_ICONS.githubConnectionFailed;
+    includeVerify = true;
+  } else if (!meta && docUrl) {
+    meta = docUrl;
+  }
+
+  showToast(toastTitle, { variant: "error", icon, meta });
+  setStatus(statusMessage, 7000);
+  try {
+    await refreshOnboardingStatus({ includeVerify });
+  } catch (refreshErr) {
+    console.error("Failed to refresh onboarding after commit failure:", refreshErr);
+  }
+}
+
 async function commitToGitHub(){
   if (commitInFlight) return;
+  const btn = $("#btnCommit");
 
   try {
-    // Check connectivity first
     const isConnected = await checkGitHubConnectivity();
     if (!isConnected) {
-      showToast("GitHub Connection Failed", {
+      showToast("GitHub connection failed", {
         variant: "error",
+        icon: TOAST_ICONS.githubConnectionFailed,
         meta: "Please check your internet connection and try again",
         duration: 8000
       });
-      throw new Error("Cannot reach GitHub. Please check your internet connection and try again.");
+      setStatus("Cannot reach GitHub right now.", 6000);
+      return;
     }
-    // Handle dirty form state
+
+    const tokenReady = await ensureCommitTokenAvailable();
+    if (!tokenReady) {
+      setStatus("Commit cancelled. Provide a token with Contents: read/write to continue.", 6000);
+      return;
+    }
+
     if (state.formDirty) {
-      const applyNow = await new Promise(resolve => {
+      const applyNow = await new Promise((resolve) => {
         showToast("Unapplied changes detected", {
           variant: "warning",
+          icon: TOAST_ICONS.pendingChanges,
           meta: "Apply changes before commit?",
           duration: 0,
           actions: [
-            {
-              label: "Apply",
-              onClick: () => resolve(true)
-            },
-            {
-              label: "Cancel",
-              onClick: () => resolve(false)
-            }
+            { label: "Apply", onClick: () => resolve(true) },
+            { label: "Cancel", onClick: () => resolve(false) }
           ]
         });
       });
@@ -3006,19 +3163,17 @@ async function commitToGitHub(){
       applyFormToApp(state.currentIndex);
     }
 
-    // Validate content
     const issues = validate();
     if (issues.length) {
-      const message = "Please resolve the following issues:\n\n" + 
-                     issues.map((s) => "- " + s).join("\n");
       showToast("Validation failed", {
         variant: "error",
-        meta: `${issues.length} issue${issues.length === 1 ? '' : 's'} found`
+        icon: TOAST_ICONS.validationFailed,
+        meta: `${issues.length} issue${issues.length === 1 ? "" : "s"} found`
       });
-      throw new Error(message);
+      setStatus("Commit cancelled. Resolve validation issues.", 6000);
+      return;
     }
 
-    // Confirm commit if needed
     if (settingsPrefs.confirmBeforeCommit !== false) {
       const proceed = await promptCommitConfirmation();
       if (!proceed) {
@@ -3027,40 +3182,63 @@ async function commitToGitHub(){
       }
     }
 
-    // Prepare commit
     commitInFlight = true;
-    const btn = $("#btnCommit");
     setButtonBusy(btn, true);
-    
-    // Update metadata
+
     stampGenerated();
     const text = buildJSON();
     const previewBox = $("#previewBox");
     if (previewBox) previewBox.value = text;
-    
+
     setStatus("Committing to GitHub...", 0);
 
-    // Perform commit
-    const res = await ErrorHandler.handleAsync(
-      vt.github.putFile({
-        ...state.repo,
-        text,
-        baseSha: state.sha || ""
-      }),
-      'GitHub Commit'
-    );
-
-    // Handle response
-    const newSha = res?.content?.sha;
-    if (!newSha) {
-      throw new Error('Invalid response from GitHub commit');
+    let res;
+    let storedToken = onboarding.storedToken || null;
+    if (!storedToken?.token) {
+      try {
+        storedToken = await vt.token.get();
+      } catch (err) {
+        console.error("Failed to read stored token before commit:", err);
+        storedToken = null;
+      }
+      if (storedToken?.token) applyStoredTokenStatus(storedToken);
+    }
+    if (!storedToken?.token) {
+      showToast("GitHub token required", {
+        variant: "error",
+        icon: TOAST_ICONS.tokenRequired,
+        meta: "Store a token with Contents: read/write scope before committing."
+      });
+      setStatus("Commit blocked. Store a GitHub token first.", 6000);
+      return;
     }
 
-    // Update state and UI
+    const commitContext = {
+      owner: state.repo?.owner,
+      repo: state.repo?.repo,
+      branch: state.repo?.branch,
+      path: state.repo?.path
+    };
+  try {
+    res = await vt.github.putFile({
+      ...state.repo,
+      text,
+      baseSha: state.sha || ""
+    });
+  } catch (error) {
+    await handleCommitFailure(error, commitContext);
+    return;
+  }
+
+    const newSha = res?.content?.sha;
+    if (!newSha) {
+      throw new Error("Invalid response from GitHub commit");
+    }
+
     state.sha = newSha;
     setDirty(false);
     renderApps();
-    
+
     const shortSha = newSha.slice(0, 8);
     setStatus(`Committed repoversion.json @ ${shortSha}`, 7000);
     showToast("Manifest committed to GitHub", {
@@ -3069,11 +3247,15 @@ async function commitToGitHub(){
       meta: shortSha ? `SHA ${shortSha}` : ""
     });
 
+    try {
+      await refreshOnboardingStatus({ includeVerify: false });
+    } catch (refreshErr) {
+      console.error("Failed to refresh onboarding after commit:", refreshErr);
+    }
   } catch (error) {
     ErrorHandler.showError(error, 'Commit');
   } finally {
     commitInFlight = false;
-    const btn = $("#btnCommit");
     setButtonBusy(btn, false);
     if (exitCommitInProgress && exitAwaitingExistingCommit) {
       const stillPending = isCommitPromptNeeded() || state.formDirty;
@@ -3202,10 +3384,10 @@ async function openLocal(){
     $("#previewBox").value = buildJSON();
     const fileName = res.path.split(/[\\/]/).pop();
     setStatus(`Loaded ${fileName}`, 5000);
-    showToast("Local manifest loaded", { variant: "info", meta: fileName });
+    showToast("Local manifest loaded", { variant: "info", icon: TOAST_ICONS.manifestLoaded, meta: fileName });
   }catch(e){
     alert("Invalid JSON:\n" + e);
-    showToast("Load failed", { variant: "error", meta: e.message || String(e) });
+    showToast("Load failed", { variant: "error", icon: TOAST_ICONS.loadFailed, meta: e.message || String(e) });
   }
 }
 async function saveLocal(){
@@ -3222,7 +3404,7 @@ async function saveLocal(){
   if (!res?.canceled) {
     const fileName = res.path.split(/[\\/]/).pop();
     setStatus(`Saved ${fileName}`, 5000);
-    showToast("Manifest saved locally", { variant: "success", meta: fileName });
+    showToast("Manifest saved locally", { variant: "success", icon: TOAST_ICONS.manifestSaved, meta: fileName });
   }
 }
 
@@ -3253,8 +3435,18 @@ function toggleTokenVisibility(){
 }
 async function openTokenDialog(){
   const dlg = $("#tokenDialog");
-  const { token } = await vt.token.get();
-  $("#tokenInput").value = token || "";
+  resetTokenRemovalConfirmation();
+  const stored = await vt.token.get();
+  const tokenValue = stored?.token || "";
+  $("#tokenInput").value = tokenValue;
+  const tokenRemove = $("#tokenRemove");
+  if (tokenRemove) {
+    const isEnvToken = stored?.source === "env";
+    tokenRemove.disabled = !tokenValue || isEnvToken;
+    tokenRemove.title = isEnvToken
+      ? "Token is supplied via environment variables and cannot be removed from this device."
+      : "";
+  }
   setTokenVisibility(false);
   if (!dlg.open) dlg.showModal();
   window.setTimeout(() => {
@@ -3263,6 +3455,37 @@ async function openTokenDialog(){
   }, 15);
 }
 function closeTokenDialog(){ $("#tokenDialog").close(); }
+function resetTokenRemovalConfirmation(){
+  if (tokenRemoveConfirmState.resolve) {
+    settleTokenRemovalConfirmation(false);
+    return;
+  }
+  const dialog = $("#tokenRemoveConfirmDialog");
+  if (dialog?.open) dialog.close();
+  tokenRemoveConfirmState.promise = null;
+  tokenRemoveConfirmState.resolve = null;
+}
+function settleTokenRemovalConfirmation(result){
+  const dialog = $("#tokenRemoveConfirmDialog");
+  const resolver = tokenRemoveConfirmState.resolve;
+  tokenRemoveConfirmState.resolve = null;
+  tokenRemoveConfirmState.promise = null;
+  if (dialog?.open) dialog.close();
+  if (typeof resolver === "function") resolver(result);
+}
+function promptTokenRemovalConfirmation(){
+  const dialog = $("#tokenRemoveConfirmDialog");
+  if (!dialog) {
+    const confirmed = window.confirm("Remove the stored GitHub token from this device? You can add a new token at any time.");
+    return Promise.resolve(confirmed);
+  }
+  if (tokenRemoveConfirmState.promise) return tokenRemoveConfirmState.promise;
+  tokenRemoveConfirmState.promise = new Promise((resolve) => {
+    tokenRemoveConfirmState.resolve = resolve;
+  });
+  if (!dialog.open) dialog.showModal();
+  return tokenRemoveConfirmState.promise;
+}
 function getVerifyDialogContext(){
   const dialog = $("#tokenVerifyDialog");
   if (!dialog) return null;
@@ -3472,8 +3695,8 @@ function toggleSettingsPreference(key){
 }
 function friendlyTokenSource(source){
   const map = {
-    keytar: "Secure keychain",
-    store: "Local store",
+    store: "AppData store",
+    keytar: "Secure keychain (legacy)",
     env: "Environment variable",
     none: "Not available"
   };
@@ -3539,7 +3762,7 @@ function refreshSettingsSnapshot(){
       : "Ready to connect once a token is stored.";
   }
   if (tokenStoredVia) tokenStoredVia.textContent = hasToken ? sourceLabel : "--";
-  if (tokenStoredMeta) tokenStoredMeta.textContent = hasToken ? (stored?.source || "local") : "n/a";
+  if (tokenStoredMeta) tokenStoredMeta.textContent = hasToken ? (stored?.source || "store") : "n/a";
   if (tokenAccount) tokenAccount.textContent = hasVerification ? (info.login || info.name || "--") : "--";
   if (tokenAccountMeta) tokenAccountMeta.textContent = hasVerification && accountParts.length ? accountParts.join(" | ") : "?";
   if (tokenVerified) tokenVerified.textContent = hasVerification ? verifiedText : (info?.error ? "Failed" : "Never");
@@ -3722,13 +3945,8 @@ function applyStoredTokenStatus(stored){
   const callout = $("#onboardTokenCallout p:last-child");
   const grid = $("#onboardTokenGrid");
   const hasToken = !!stored?.token;
-  const sourceLabels = {
-    keytar: "Secure keychain",
-    store: "Local store",
-    env: "Environment variable",
-    none: "Not available"
-  };
-  const friendly = sourceLabels[stored?.source] || (stored?.source ? stored.source : "Unknown");
+  const friendly = friendlyTokenSource(stored?.source);
+  const rawSource = stored?.source || "store";
   setOnboardingStepStatus("token", hasToken ? "done" : "pending", hasToken ? "Token stored" : "Token not stored");
   if (summary) {
     summary.textContent = hasToken
@@ -3744,7 +3962,7 @@ function applyStoredTokenStatus(stored){
         <div class="tile">
           <strong>Storage</strong>
           <span>${escapeHtml(friendly)}</span>
-          <span class="tile-meta">${escapeHtml(stored?.source || "local")}</span>
+          <span class="tile-meta">${escapeHtml(rawSource)}</span>
         </div>
         <div class="tile">
           <strong>Token preview</strong>
@@ -3763,7 +3981,7 @@ function applyStoredTokenStatus(stored){
   }
   if (callout) {
     callout.textContent = hasToken
-      ? "Great! Keep a copy of your token somewhere safe in case you need to regenerate it."
+      ? `Stored via ${friendly}. Keep a copy of your token somewhere safe in case you need to regenerate it.`
       : "Create a token from GitHub > Settings > Developer settings > Fine-grained tokens, then paste it into the dialog.";
   }
   if (!hasToken) applyVerifiedTokenStatus(null);
@@ -3775,12 +3993,6 @@ function applyVerifiedTokenStatus(info){
   const summary = $("#onboardVerifySummary");
   const details = $("#onboardVerifyDetails");
   const callout = $("#onboardVerifyCallout");
-  const sourceLabels = {
-    keytar: "Secure keychain",
-    store: "Local store",
-    env: "Environment variable",
-    none: "Not available"
-  };
   if (!info || !info.hasToken){
     setOnboardingStepStatus("verify", "pending", ONBOARDING_DEFAULT_LABELS.verify);
     if (summary) summary.textContent = "";
@@ -3794,9 +4006,9 @@ function applyVerifiedTokenStatus(info){
     if (summary) summary.textContent = "";
     if (callout) callout.innerHTML = `<strong>Latest check</strong><p>GitHub reported a problem while checking the stored token.</p><p class="verify-status-detail is-error">${escapeHtml(info.error || "Unknown error")}</p>`;
     if (details) {
-      const friendlySource = sourceLabels[info.source] || (info.source ? info.source : "Unknown");
+      const friendlySource = friendlyTokenSource(info.source);
       details.innerHTML = [
-        renderTile("Stored via", friendlySource, { meta: info.source || "local" }),
+        renderTile("Stored via", friendlySource, { meta: info.source || "store" }),
         renderTile("Scopes", info.scopes?.length ? info.scopes.join(", ") : "None reported")
       ].join("");
     }
@@ -3812,8 +4024,8 @@ function applyVerifiedTokenStatus(info){
   if (details){
     const accountMeta = [];
     if (info.name && info.name !== info.login) accountMeta.push(info.name);
-    if (info.type) accountMeta.push(info.type);
-    const friendlySource = sourceLabels[info.source] || (info.source ? info.source : "Unknown");
+   if (info.type) accountMeta.push(info.type);
+    const friendlySource = friendlyTokenSource(info.source);
     const scopesHtml = info.scopes?.length
       ? info.scopes.map((scope) => `<code>${escapeHtml(scope)}</code>`).join("")
       : "<span class=\"tile-meta\">None reported</span>";
@@ -3825,7 +4037,7 @@ function applyVerifiedTokenStatus(info){
         meta: accountMeta.length ? accountMeta.join(" | ") : null
       }),
       renderTile("Stored via", friendlySource, {
-        meta: info.source || "local"
+        meta: info.source || "store"
       }),
       renderTile("Endpoint expects", acceptedHtml, {
         rawValue: true
@@ -3978,16 +4190,101 @@ async function ensureWorkspaceStorage(){
         }
       });
     }
-    setActiveOnboardingStep("data");
-    showToast("Workspace folder ready", { variant: "success", meta: result?.dir || "" });
+    const status = result?.status || onboarding.dataStatus || null;
+    const targetDir = status?.dir || result?.dir || "";
+    showToast("Workspace folder ready", {
+      variant: "success",
+      icon: TOAST_ICONS.prepareWorkspace,
+      meta: targetDir
+    });
     setStatus("Workspace storage prepared.", 4000);
+    await refreshOnboardingStatus({ includeVerify: false, focusStep: "data", preserveStep: true });
   }catch(err){
     console.error(err);
     setOnboardingStepStatus("data", "error", "Creation failed");
     const grid = $("#onboardDataPaths");
     if (grid) grid.innerHTML = renderTile("Error", err?.message || String(err));
     setStatus("Could not create workspace folder.", 5000);
-    showToast("Workspace setup failed", { variant: "error", meta: err?.message || String(err) });
+    showToast("Workspace setup failed", { variant: "error", icon: TOAST_ICONS.workspaceFailed, meta: err?.message || String(err) });
+  }
+}
+async function removeStoredToken(){
+  let stored;
+  try {
+    stored = await vt.token.get();
+  } catch (err) {
+    console.error(err);
+    showToast("Token removal failed", { variant: "error", icon: TOAST_ICONS.tokenRemovalFailed, meta: err?.message || String(err) });
+    setStatus("Token removal failed.", 5000);
+    return;
+  }
+  if (!stored?.token) {
+    showToast("Token removal failed", { variant: "error", icon: TOAST_ICONS.tokenRemovalFailed, meta: "No stored token found on this device." });
+    setStatus("No stored token to remove.", 4000);
+    return;
+  }
+  if (stored.source === "env") {
+    alert("The active token is provided via environment variables. Remove or change the environment variable to stop using it.");
+    return;
+  }
+  const confirmed = await promptTokenRemovalConfirmation();
+  if (!confirmed) {
+    setStatus("Token removal cancelled.", 4000);
+    return;
+  }
+  setStatus("Removing stored token...", 0);
+  try{
+    const result = await vt.token.remove();
+    const cleanup = result?.cleanup || {};
+    const nextInfo = result?.next || null;
+    const hasNextToken = !!nextInfo?.token;
+    applyStoredTokenStatus(hasNextToken ? nextInfo : null);
+    onboarding.tokenInfo = null;
+    const input = $("#tokenInput");
+    if (input) input.value = "";
+    const tokenRemove = $("#tokenRemove");
+    if (tokenRemove) {
+      const isEnv = nextInfo?.source === "env";
+      tokenRemove.disabled = !hasNextToken || isEnv;
+      tokenRemove.title = isEnv
+        ? "Token is supplied via environment variables and cannot be removed from this device."
+        : "";
+    }
+    refreshSettingsSnapshot();
+    try {
+      await refreshOnboardingStatus({ includeVerify: false, preserveStep: true });
+    } catch (err) {
+      console.error(err);
+    }
+    if (hasNextToken && nextInfo.source === "env") {
+      showToast("Token sourced from environment", {
+        variant: "info",
+        icon: TOAST_ICONS.tokenEnv,
+        meta: "A GITHUB_TOKEN environment variable is still active."
+      });
+      setStatus("Environment token still active.", 5000);
+    } else {
+      showToast("Token removed", { variant: "success", icon: TOAST_ICONS.tokenRemoved });
+      setStatus("Token removed.", 4000);
+      if (Array.isArray(cleanup.fileRemoved) && cleanup.fileRemoved.length) {
+        console.info("Removed legacy token files:", cleanup.fileRemoved);
+      }
+      if (cleanup.keytarRemoved && Array.isArray(cleanup.keytarAccounts) && cleanup.keytarAccounts.length) {
+        console.info("Cleared legacy keytar credentials:", cleanup.keytarAccounts);
+      }
+      if (Array.isArray(cleanup.errors) && cleanup.errors.length) {
+        const detail = cleanup.errors.map((entry) => `${entry.source}: ${entry.message}`).join(" | ");
+        showToast("Token cleanup warnings", {
+          variant: "warning",
+          icon: TOAST_ICONS.tokenRemovalFailed,
+          meta: detail
+        });
+      }
+    }
+  }catch(err){
+    console.error(err);
+    showToast("Token removal failed", { variant: "error", icon: TOAST_ICONS.tokenRemovalFailed, meta: err?.message || String(err) });
+    setStatus("Token removal failed.", 5000);
   }
 }
 async function saveToken(){
@@ -4074,13 +4371,7 @@ async function verifyToken(){
       setStatus("No token stored.", 4000);
       return;
     }
-    const srcLabels = {
-      keytar: "Secure keychain",
-      store: "Local store",
-      env: "Environment variable",
-      none: "Not available"
-    };
-    const friendlySource = srcLabels[info.source] || (info.source ? info.source : "Unknown");
+    const friendlySource = friendlyTokenSource(info.source);
     const accountLabel = info.login || info.name || "Not reported";
     const accountMeta = [];
     if (info.name && info.name !== info.login) accountMeta.push(info.name);
@@ -4578,6 +4869,13 @@ function bind(){
   $("#btnAddApp").addEventListener("click", addNewApp);
   $("#btnDelApp").addEventListener("click", deleteApp);
   $("#btnDupApp").addEventListener("click", duplicateApp);
+  const appsEmptyAdd = $("#appsEmptyAdd");
+  if (appsEmptyAdd) {
+    appsEmptyAdd.addEventListener("click", () => {
+      const addBtn = $("#btnAddApp");
+      if (addBtn) addBtn.click();
+    });
+  }
   setupAppContextMenu();
 
   // Calendar filters & view
@@ -4819,12 +5117,12 @@ function bind(){
     settingsOpenWorkspace.addEventListener("click", async () => {
       try {
         const res = await vt.setup.openDir();
-        if (res?.dir) showToast("Workspace folder opened", { variant: "info", meta: res.dir });
+        if (res?.dir) showToast("Workspace folder opened", { variant: "info", icon: TOAST_ICONS.workspaceOpened, meta: res.dir });
         setStatus("Workspace folder opened.", 2600);
       } catch (err) {
         console.error(err);
         setStatus("Unable to open workspace folder.", 3200);
-        showToast("Open folder failed", { variant: "error", meta: err?.message || String(err) });
+        showToast("Open folder failed", { variant: "error", icon: TOAST_ICONS.folderError, meta: err?.message || String(err) });
       }
     });
   }
@@ -4870,6 +5168,24 @@ function bind(){
     e.preventDefault();
     vt.shell.open("https://github.com/settings/tokens");
   });
+  const tokenRemove = $("#tokenRemove");
+  if (tokenRemove) tokenRemove.addEventListener("click", removeStoredToken);
+  const tokenRemoveConfirmDialog = $("#tokenRemoveConfirmDialog");
+  if (tokenRemoveConfirmDialog && !tokenRemoveConfirmDialog.dataset.bound) {
+    tokenRemoveConfirmDialog.dataset.bound = "1";
+    tokenRemoveConfirmDialog.addEventListener("cancel", (event) => {
+      event.preventDefault();
+      settleTokenRemovalConfirmation(false);
+    });
+  }
+  const tokenRemoveConfirmCancel = $("#tokenRemoveConfirmCancel");
+  if (tokenRemoveConfirmCancel) tokenRemoveConfirmCancel.addEventListener("click", () => {
+    settleTokenRemovalConfirmation(false);
+  });
+  const tokenRemoveConfirmApprove = $("#tokenRemoveConfirmApprove");
+  if (tokenRemoveConfirmApprove) tokenRemoveConfirmApprove.addEventListener("click", () => {
+    settleTokenRemovalConfirmation(true);
+  });
 
   // Onboarding
   const onboardOpenSettings = $("#onboardOpenSettings");
@@ -4897,10 +5213,10 @@ function bind(){
   if (onboardOpenDataDir) onboardOpenDataDir.addEventListener("click", async () => {
     try{
       const res = await vt.setup.openDir();
-      if (res?.dir) showToast("Workspace folder opened", { variant: "info", meta: res.dir });
+      if (res?.dir) showToast("Workspace folder opened", { variant: "info", icon: TOAST_ICONS.workspaceOpened, meta: res.dir });
     }catch(err){
       console.error(err);
-      showToast("Open folder failed", { variant: "error", meta: err?.message || String(err) });
+      showToast("Open folder failed", { variant: "error", icon: TOAST_ICONS.folderError, meta: err?.message || String(err) });
       setStatus("Could not open workspace folder.", 4000);
     }
   });
@@ -5307,6 +5623,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       } else {
         showToast("GitHub Token Required", {
           variant: "warning",
+          icon: TOAST_ICONS.tokenRequired,
           meta: "Please configure your GitHub token to fetch data",
           duration: 8000
         });

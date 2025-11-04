@@ -91,6 +91,12 @@
       </div>
 
       <ul id="appsList" class="list"></ul>
+      <div id="appsEmptyState" class="apps-empty" hidden>
+        <img src="assets/emptyState.png" alt="" class="apps-empty-illustration" aria-hidden="true" role="presentation">
+        <h3>No applications yet</h3>
+        <p>Add your first application to start tracking release manifests.</p>
+        <button id="appsEmptyAdd" type="button" class="apps-empty-action">Add application</button>
+      </div>
 
       <div class="side-actions">
         <button id="btnAddApp"><img src="assets/ic-identity.svg" alt=""/>Add</button>
@@ -651,20 +657,32 @@
         <p>Tokens stay encrypted and never leave this device. Regenerate a new token immediately if it ever leaks.</p>
       </div>
       <a id="tokenDocsLink" class="token-docs" href="https://github.com/settings/tokens" target="_blank" rel="noopener">Open GitHub token settings</a>
-    </div>
-    <div class="token-actions">
+  </div>
+  <div class="token-actions">
+    <div class="token-actions-left">
       <button id="tokenCancel" class="ghost" type="button">Cancel</button>
-      <div class="token-actions-right">
-        <button id="tokenVerifyButton" class="ghost subtle" type="button">Verify stored token</button>
-        <button id="tokenSave" class="ok" type="button">Save token</button>
-      </div>
+      <button id="tokenRemove" class="ghost danger" type="button">Remove stored token</button>
     </div>
-  </dialog>
+    <div class="token-actions-right">
+      <button id="tokenVerifyButton" class="ghost subtle" type="button">Verify stored token</button>
+      <button id="tokenSave" class="ok" type="button">Save token</button>
+    </div>
+  </div>
+</dialog>
 
-  <!-- Token verification dialog -->
-  <dialog id="tokenVerifyDialog" class="dialog-card token-verify-card" aria-labelledby="tokenVerifyTitle">
-    <div class="verify-header">
-      <div class="verify-icon" id="tokenVerifyIcon" aria-hidden="true"></div>
+ <dialog id="tokenRemoveConfirmDialog" class="dialog-card token-remove-dialog" aria-labelledby="tokenRemoveConfirmTitle">
+   <h3 id="tokenRemoveConfirmTitle">Remove stored token?</h3>
+   <p class="token-remove-confirm-lead">This deletes the GitHub token stored on this device. You can add a new token at any time.</p>
+   <div class="dialog-footer">
+     <button id="tokenRemoveConfirmCancel" class="ghost" type="button">Keep token</button>
+     <button id="tokenRemoveConfirmApprove" class="ghost danger" type="button">Remove token</button>
+   </div>
+ </dialog>
+
+<!-- Token verification dialog -->
+<dialog id="tokenVerifyDialog" class="dialog-card token-verify-card" aria-labelledby="tokenVerifyTitle">
+  <div class="verify-header">
+    <div class="verify-icon" id="tokenVerifyIcon" aria-hidden="true"></div>
       <div class="verify-header-text">
         <h3 id="tokenVerifyTitle">Verify Stored Token</h3>
         <p id="tokenVerifyStatus" class="verify-status">Ready to check your GitHub credentials.</p>

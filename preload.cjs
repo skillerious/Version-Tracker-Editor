@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld("vt", {
   token: {
     get: () => ipcRenderer.invoke("token:get"),
     set: (token) => ipcRenderer.invoke("token:set", token),
+    remove: () => ipcRenderer.invoke("token:remove"),
     info: () => ipcRenderer.invoke("token:info")
   },
   github: {

@@ -5,13 +5,23 @@ import os from "node:os";
 import { fileURLToPath } from "node:url";
 import Store from "electron-store";
 
-let keytar = null;
-try { keytar = await import("keytar"); } catch { /* optional */ }
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-const store = new Store({ name: "version-tracker" });
+const DATA_DIR_NAME = "VersionTrackerEditor";
+const SETTINGS_FILE = "settings.json";
+const TOKEN_META_FILE = "token-info.json";
+
+function getDataRoot() {
+  return path.join(app.getPath("appData"), DATA_DIR_NAME);
+}
+
+await fs.mkdir(getDataRoot(), { recursive: true });
+
+const store = new Store({
+  name: "version-tracker",
+  cwd: getDataRoot()
+});
 
 const APP_METADATA = {
   description: "A focused workspace for auditing and publishing release manifests with GitHub-driven workflows.",
@@ -20,12 +30,186 @@ const APP_METADATA = {
 };
 
 const DEFAULT_REPO = { owner: "skillerious", repo: "Version-Tracker", branch: "main", path: "repoversion.json" };
-const DATA_DIR_NAME = "VersionTrackerEditor";
-const SETTINGS_FILE = "settings.json";
-const TOKEN_META_FILE = "token-info.json";
+const TOKEN_STORE_KEY = "github_token";
+const LEGACY_MIGRATION_FLAG = "__legacy_token_migrated__";
+const LEGACY_SERVICE = "VersionTrackerEditor_GitHub";
+const LEGACY_ACCOUNT = "token";
 
-function getDataRoot() {
-  return path.join(app.getPath("appData"), DATA_DIR_NAME);
+let keytarModulePromise = null;
+function loadKeytarModule() {
+  if (!keytarModulePromise) {
+    keytarModulePromise = import("keytar").catch(() => null);
+  }
+  return keytarModulePromise;
+}
+
+function normalizeToken(token) {
+  return String(token ?? "").trim();
+}
+
+function safeGetAppPath(key) {
+  try {
+    return app.getPath(key);
+  } catch {
+    return "";
+  }
+}
+
+function getLegacyStorePaths() {
+  const paths = new Set();
+  const userData = safeGetAppPath("userData");
+  if (userData) paths.add(path.join(userData, "version-tracker.json"));
+  const appData = safeGetAppPath("appData");
+  if (appData) {
+    paths.add(path.join(appData, "version-tracker", "version-tracker.json"));
+    paths.add(path.join(appData, "VersionTrackerEditor-nodejs", "Config", "version-tracker.json"));
+  }
+  const currentStorePath = store?.path ? path.normalize(store.path) : "";
+  return Array.from(paths).filter((candidate) => candidate && path.normalize(candidate) !== currentStorePath);
+}
+
+async function readJsonIfExists(target) {
+  try {
+    const text = await fs.readFile(target, "utf-8");
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+async function writeJsonFile(target, data) {
+  const dir = path.dirname(target);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(target, JSON.stringify(data, null, 2), "utf-8");
+}
+
+async function findLegacyFileToken() {
+  const candidates = getLegacyStorePaths();
+  for (const file of candidates) {
+    const data = await readJsonIfExists(file);
+    if (data && typeof data === "object" && data.github_token) {
+      const token = normalizeToken(data.github_token);
+      if (token) return { token, file };
+    }
+  }
+  return null;
+}
+
+async function clearLegacyFileTokens() {
+  const removed = [];
+  const errors = [];
+  const candidates = getLegacyStorePaths();
+  for (const file of candidates) {
+    if (!(await pathExists(file))) continue;
+    let data = await readJsonIfExists(file);
+    if (!data || typeof data !== "object") continue;
+    if (!data.github_token) continue;
+    try {
+      delete data.github_token;
+      await writeJsonFile(file, data);
+      removed.push(file);
+    } catch (err) {
+      errors.push({ file, error: err });
+    }
+  }
+  return { removed, errors };
+}
+
+async function findLegacyKeytarToken() {
+  const keytar = await loadKeytarModule();
+  if (!keytar?.getPassword) return null;
+  try {
+    const direct = normalizeToken(await keytar.getPassword(LEGACY_SERVICE, LEGACY_ACCOUNT));
+    if (direct) return { token: direct, account: LEGACY_ACCOUNT };
+  } catch (err) {
+    console.warn("Failed to read keytar token for default account:", err);
+  }
+  if (keytar?.findCredentials) {
+    try {
+      const credentials = await keytar.findCredentials(LEGACY_SERVICE);
+      for (const credential of credentials) {
+        if (!credential?.account) continue;
+        const token = normalizeToken(credential?.password);
+        if (token) return { token, account: credential.account };
+      }
+    } catch (err) {
+      console.warn("Failed to enumerate legacy keytar credentials:", err);
+    }
+  }
+  return null;
+}
+
+async function clearLegacyKeytarTokens() {
+  const keytar = await loadKeytarModule();
+  if (!keytar?.deletePassword) return { removed: false, accounts: [], errors: [] };
+  const accountsCleared = new Set();
+  const errors = [];
+  try {
+    if (await keytar.deletePassword(LEGACY_SERVICE, LEGACY_ACCOUNT)) accountsCleared.add(LEGACY_ACCOUNT);
+  } catch (err) {
+    errors.push({ account: LEGACY_ACCOUNT, error: err });
+  }
+  if (keytar?.findCredentials) {
+    try {
+      const credentials = await keytar.findCredentials(LEGACY_SERVICE);
+      for (const credential of credentials) {
+        if (!credential?.account) continue;
+        try {
+          if (await keytar.deletePassword(LEGACY_SERVICE, credential.account)) {
+            accountsCleared.add(credential.account);
+          }
+        } catch (err) {
+          errors.push({ account: credential.account, error: err });
+        }
+      }
+    } catch (err) {
+      errors.push({ account: "*enumerate*", error: err });
+    }
+  }
+  return { removed: accountsCleared.size > 0, accounts: Array.from(accountsCleared), errors };
+}
+
+async function clearLegacyTokenSources() {
+  const fileResult = await clearLegacyFileTokens();
+  const keytarResult = await clearLegacyKeytarTokens();
+  const errors = [
+    ...fileResult.errors.map((entry) => ({
+      source: entry.file,
+      message: entry.error?.message || String(entry.error)
+    })),
+    ...keytarResult.errors.map((entry) => ({
+      source: entry.account,
+      message: entry.error?.message || String(entry.error)
+    }))
+  ];
+  return {
+    fileRemoved: fileResult.removed,
+    keytarRemoved: keytarResult.removed,
+    keytarAccounts: keytarResult.accounts,
+    errors
+  };
+}
+
+async function findLegacyToken() {
+  const keytarToken = await findLegacyKeytarToken();
+  if (keytarToken?.token) return { token: keytarToken.token, source: "keytar", meta: keytarToken };
+  const fileToken = await findLegacyFileToken();
+  if (fileToken?.token) return { token: fileToken.token, source: "legacy-store", meta: fileToken };
+  return null;
+}
+
+async function migrateLegacyTokenIfPresent() {
+  if (store.get(LEGACY_MIGRATION_FLAG, false)) return null;
+  const legacy = await findLegacyToken();
+  if (!legacy?.token) {
+    store.set(LEGACY_MIGRATION_FLAG, true);
+    return null;
+  }
+  store.set(TOKEN_STORE_KEY, legacy.token);
+  const cleanup = await clearLegacyTokenSources();
+  console.info(`Migrated GitHub token from ${legacy.source} to AppData store.`);
+  store.set(LEGACY_MIGRATION_FLAG, true);
+  return { token: legacy.token, source: "store", migratedFrom: legacy.source, cleanup };
 }
 async function pathExists(target) {
   try {
@@ -161,37 +345,63 @@ app.on("window-all-closed", () => {
 });
 
 // -------- Token storage
-const SERVICE = "VersionTrackerEditor_GitHub";
-const ACCOUNT = "token";
-
-function normalizeToken(token) {
-  return String(token ?? "").trim();
-}
-
 async function getToken() {
-  if (keytar?.getPassword) {
-    const stored = normalizeToken(await keytar.getPassword(SERVICE, ACCOUNT));
-    if (stored) return { token: stored, source: "keytar" };
-  }
-  const stored = normalizeToken(store.get("github_token", ""));
+  const stored = normalizeToken(store.get(TOKEN_STORE_KEY, ""));
   if (stored) return { token: stored, source: "store" };
+  const migrated = await migrateLegacyTokenIfPresent();
+  if (migrated?.token) return migrated;
   const env = normalizeToken(process.env.GITHUB_TOKEN);
   if (env) return { token: env, source: "env" };
   return { token: "", source: "none" };
 }
 
-ipcMain.handle("token:get", getToken);
+ipcMain.handle("token:get", async () => {
+  const result = await getToken();
+  console.info("token:get -> result", {
+    source: result?.source || "none",
+    hasToken: !!result?.token,
+    migratedFrom: result?.migratedFrom || null,
+    storePath: store.path
+  });
+  return result;
+});
 ipcMain.handle("token:set", async (_e, token) => {
   if (!token || typeof token !== "string") throw new Error("Empty token");
   const trimmed = normalizeToken(token);
   if (!trimmed) throw new Error("Empty token");
-  if (keytar?.setPassword) {
-    await keytar.setPassword(SERVICE, ACCOUNT, trimmed);
-    store.delete("github_token");
-    return { ok: true, source: "keytar" };
+  store.set(TOKEN_STORE_KEY, trimmed);
+  store.set(LEGACY_MIGRATION_FLAG, true);
+  console.info("token:set -> stored token in AppData store.", { path: store.path });
+  const cleanup = await clearLegacyTokenSources();
+  if (cleanup.errors.length) {
+    console.warn("Legacy token cleanup reported issues after set:", cleanup.errors);
   }
-  store.set("github_token", trimmed);
-  return { ok: true, source: "store" };
+  return { ok: true, source: "store", cleanup };
+});
+ipcMain.handle("token:remove", async () => {
+  try {
+    store.delete(TOKEN_STORE_KEY);
+  } catch (err) {
+    console.error("Failed to delete token from electron-store:", err);
+    throw new Error(`Token removal failed while clearing local storage: ${err.message}`);
+  }
+
+  const cleanup = await clearLegacyTokenSources();
+  if (cleanup.errors.length) {
+    console.warn("Legacy token cleanup reported issues during removal:", cleanup.errors);
+  }
+
+  const next = await getToken();
+  if (next.token && next.source !== "env") {
+    const detail = cleanup.errors.length
+      ? ` Legacy cleanup errors: ${cleanup.errors.map((entry) => `${entry.source}: ${entry.message}`).join("; ")}`
+      : "";
+    throw new Error(`Token removal incomplete: ${next.source} still reports a token.${detail}`);
+  }
+
+  console.info("token:remove -> token cleared from AppData store.", { path: store.path, cleanup });
+
+  return { ok: !next.token || next.source === "env", next, cleanup };
 });
 ipcMain.handle("token:info", async () => {
   const info = await getToken();
@@ -232,7 +442,7 @@ ipcMain.handle("token:info", async () => {
 // -------- GitHub API
 function ghHeaders(token) {
   const trimmed = normalizeToken(token);
-  const scheme = trimmed.startsWith("github_pat_") ? "Bearer" : "token";
+  const scheme = /^gh[us]_/.test(trimmed) ? "Bearer" : "token";
   return {
     "Authorization": `${scheme} ${trimmed}`,
     "Accept": "application/vnd.github+json",

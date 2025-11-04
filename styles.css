@@ -548,6 +548,58 @@ code{
 .side-actions{ display:flex; gap:8px; margin-top:10px }
 .side-actions button{ flex:1; border-radius:8px; padding:6px 10px; background:var(--vsc-panel); border:1px solid var(--vsc-border); color:var(--text); display:flex; gap:8px; align-items:center; cursor:pointer }
 .side-actions button:hover{ background:#343434 } .side-actions button.danger{ border-color:rgba(239,88,88,.35) }
+.apps-empty{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  text-align:center;
+  gap:14px;
+  margin:24px 8px 0 8px;
+  padding:28px 18px;
+  border-radius:14px;
+  border:0;
+  background:none;
+  box-shadow:none;
+}
+.apps-empty[hidden]{ display:none; }
+.apps-empty-illustration{
+  width:140px;
+  height:auto;
+  opacity:.9;
+  filter:drop-shadow(0 12px 28px rgba(0,0,0,.45));
+}
+.apps-empty h3{
+  margin:0;
+  font-size:16px;
+  letter-spacing:.35px;
+  color:#f5f8ff;
+}
+.apps-empty p{
+  margin:0;
+  max-width:240px;
+  font-size:12.5px;
+  line-height:1.55;
+  color:rgba(214,222,240,.82);
+}
+.apps-empty-action{
+  padding:8px 18px;
+  border-radius:999px;
+  border:1px solid rgba(92,225,255,.45);
+  background:rgba(92,225,255,.12);
+  color:#e9fbff;
+  font-weight:600;
+  letter-spacing:.28px;
+  cursor:pointer;
+  transition:background .2s ease, border-color .2s ease, transform .2s ease;
+}
+.apps-empty-action:hover{
+  background:rgba(92,225,255,.18);
+  border-color:rgba(92,225,255,.6);
+  transform:translateY(-1px);
+}
+.apps-empty-action:active{
+  transform:translateY(0);
+}
 .side-footer{
   margin:12px 0 16px 0;
   display:flex;
@@ -2900,12 +2952,45 @@ dialog::backdrop{ background:rgba(0,0,0,.55) }
   align-items:center;
   justify-content:space-between;
   gap:14px;
+  flex-wrap:wrap;
   margin-top:24px;
 }
+.token-actions-left,
 .token-actions-right{
   display:flex;
   align-items:center;
   gap:10px;
+}
+.token-actions-left{
+  flex-wrap:wrap;
+}
+.token-actions .ghost.danger{
+  border-color:rgba(239,88,88,.42);
+  color:#ffd0d0;
+}
+.token-actions .ghost.danger:hover{
+  border-color:rgba(239,88,88,.58);
+  color:#fff2f2;
+}
+.token-remove-dialog{
+  width:clamp(320px, 34vw, 420px);
+  padding:24px 28px 22px;
+}
+.token-remove-dialog h3{
+  margin:0 0 10px 0;
+  font-size:18px;
+}
+.token-remove-dialog .token-remove-confirm-lead{
+  margin:0 0 20px 0;
+  color:var(--muted);
+  line-height:1.45;
+}
+.token-remove-dialog .dialog-footer{
+  justify-content:flex-end;
+  gap:12px;
+}
+.token-remove-dialog .dialog-footer button{
+  margin-left:0;
 }
 .ghost.subtle{
   border-color:rgba(128,168,255,.32);
@@ -3151,6 +3236,7 @@ dialog::backdrop{ background:rgba(0,0,0,.55) }
 .toast-meta{
   font-size:11px;
   color:var(--muted);
+  overflow-wrap:anywhere;
 }
 .toast-close{
   flex:0 0 auto;
