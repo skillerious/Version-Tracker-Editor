@@ -9,11 +9,7 @@
   <em>A focused desktop editor for <code>repoversion.json</code> manifests with first-class GitHub integration.</em>
 </p>
 
-<p align="cen
-
-https://github.com/user-attachments/assets/0e235ad5-e42b-46f7-82e8-51d3a546cb52
-
-ter">
+<p align="center">
   <a href="https://www.electronjs.org/">
     <img alt="Electron" src="https://img.shields.io/badge/Electron-31.x-47848F?logo=electron&logoColor=white">
   </a>
@@ -32,12 +28,22 @@ ter">
 
 ---
 
-> **Version Tracker** is your all‑in‑one release command centre. Pull the latest manifest from GitHub, curate <code>repoversion.json</code> with precision, capture every change with real‑time validation and preview, generate shareable insights for your team, and publish confidently — without ever leaving your desktop workflow.
+## 🎥 Demo video
+
+
+
+https://github.com/user-attachments/assets/0e235ad5-e42b-46f7-82e8-51d3a546cb52
+
+
+---
+
+> **Version Tracker** is your all-in-one release command centre. Pull the latest manifest from GitHub, curate <code>repoversion.json</code> with precision, capture every change with real-time validation and preview, generate shareable insights for your team, and publish confidently — without ever leaving your desktop workflow.
 
 ---
 
 ## 📚 Table of contents
 
+- [Demo video](#-demo-video)
 - [What’s new](#-whats-new)
 - [Feature highlights](#-feature-highlights)
 - [Screenshots](#-screenshots)
@@ -69,23 +75,23 @@ ter">
 
 | Area | Highlights |
 |------|------------|
-| **Token handling** | Tokens are migrated into the AppData‑backed Electron store, legacy keytar and historical files are scrubbed automatically, and the devtools console reports the active token source (store, env, or legacy). |
-| **Commit workflow** | Every commit runs connectivity checks, validation, dirty‑form consolidation, and a scope preflight that stops 403 responses before the request is sent. |
+| **Token handling** | Tokens are migrated into the AppData-backed Electron store, legacy keytar and historical files are scrubbed automatically, and the devtools console reports the active token source (store, env, or legacy). |
+| **Commit workflow** | Every commit runs connectivity checks, validation, dirty-form consolidation, and a scope preflight that stops 403 responses before the request is sent. |
 | **Onboarding & verification** | Onboarding mirrors the settings dashboard, showing storage source, account metadata, scope chips, and actionable errors immediately after each change. |
-| **Settings dashboard** | The control centre lists workspace paths, token health badges, commit preferences, and utility actions such as opening the workspace directory or re‑running setup. |
-| **Update system** | Title‑bar indicators and the update dialog summarise available builds, release highlights, download links, and background check logs. |
-| **Quality of life** | Long‑running actions surface status/toast feedback, clipboard fallbacks keep copy buttons safe, and the wizard blocks duplicate IDs before you finish. |
+| **Settings dashboard** | The control centre lists workspace paths, token health badges, commit preferences, and utility actions such as opening the workspace directory or re-running setup. |
+| **Update system** | Title-bar indicators and the update dialog summarise available builds, release highlights, download links, and background check logs. |
+| **Quality of life** | Long-running actions surface status/toast feedback, clipboard fallbacks keep copy buttons safe, and the wizard blocks duplicate IDs before you finish. |
 
 ---
 
 ## ✨ Feature highlights
 
-- **GitHub‑first flow** — Fetch and commit through the REST `/contents` endpoints with optimistic locking, SHA tracking, and detailed error handling that explains scope failures.
-- **Form‑driven editing** — Update global metadata, stable/beta tracks, and release history with helpers for semantic version increments, slug generation, and build‑code arithmetic.
+- **GitHub-first flow** — Fetch and commit through the REST `/contents` endpoints with optimistic locking, SHA tracking, and detailed error handling that explains scope failures.
+- **Form-driven editing** — Update global metadata, stable/beta tracks, and release history with helpers for semantic version increments, slug generation, and build-code arithmetic.
 - **Live preview & validation** — The JSON mirror updates as you type, while validation rules highlight inconsistencies before a commit leaves your machine.
 - **Onboarding companion** — A guided workflow helps you configure the repository, prepare workspace storage, supply a PAT, and verify GitHub access from a single dialog.
 - **Release calendar** — Filterable timeline view for upcoming, recent, stale, and undated releases with quick toggles for stable/beta/history channels.
-- **Status awareness** — Dirty‑state indicators, contextual toasts, SHA badges, keyboard shortcuts (`F5`, `Ctrl/Cmd + S`, `Ctrl/Cmd + ,`), and inline status lines keep you oriented.
+- **Status awareness** — Dirty-state indicators, contextual toasts, SHA badges, keyboard shortcuts (`F5`, `Ctrl/Cmd + S`, `Ctrl/Cmd + ,`), and inline status lines keep you oriented.
 - **Resilient token storage** — Tokens live in `%AppData%\VersionTrackerEditor\version-tracker.json`; environment overrides are detected and reported in logs.
 - **Commit guardrails** — Preflight checks stop the commit button when scopes are insufficient, routing you directly to the token dialog with remediation tips.
 - **Token verification loop** — The verification dialog records account, scope, and timestamp metadata pulled from GitHub, persisting results to `token-info.json` for auditing.
@@ -124,7 +130,7 @@ npm start
 ## 🧭 Onboarding overview
 
 1. **Repository** — Enter owner, repository, branch, and manifest path. Values persist to `%AppData%/VersionTrackerEditor/settings.json`.
-2. **Token** — Paste a PAT with `Contents: read/write` (fine‑grained) or `repo` (classic). The dialog shows the storage source and environment overrides.
+2. **Token** — Paste a PAT with `Contents: read/write` (fine-grained) or `repo` (classic). The dialog shows the storage source and environment overrides.
 3. **Verify** — Run verification to fetch account metadata, accepted scopes, and SSO requirements. Results persist to `token-info.json`.
 4. **Workspace** — Prepare the workspace folder; baseline files and directories are created in `%AppData%/VersionTrackerEditor`.
 5. **Finish** — Once all steps are green, fetching, editing, and committing are fully enabled.
@@ -135,7 +141,7 @@ npm start
 
 ### Personal access token requirements
 
-- Use a **fine‑grained PAT** scoped to `Contents: read/write` for `Skillerious/Version-Tracker` (or `repo` for classic tokens).
+- Use a **fine-grained PAT** scoped to `Contents: read/write` for `Skillerious/Version-Tracker` (or `repo` for classic tokens).
 - Stored PATs live in `%AppData%/VersionTrackerEditor/version-tracker.json` and never touch the Git repository.
 - Environment variables `GITHUB_TOKEN` or `GITHUB_PERSONAL_TOKEN` override the stored value. The UI warns you when the override lacks the required scope.
 
@@ -187,10 +193,10 @@ npm start
 1. **Connectivity** — Pings `https://api.github.com/zen`; if unreachable, a toast asks you to retry later.
 2. **Token preflight** — Confirms a PAT exists and advertises `Contents: read/write` or `repo` scope before continuing.
 3. **Apply edits** — When the form is dirty, you are prompted to apply changes so the JSON preview and backing data remain in sync.
-4. **Validation** — Renderer‑side validation lists issues in a toast; no network calls are made until all problems are resolved.
+4. **Validation** — Renderer-side validation lists issues in a toast; no network calls are made until all problems are resolved.
 5. **Confirmation** — Optional confirmation dialog summarises target repo, branch, SHA, and apps.
 6. **Publish** — `github:putFile` uploads the new manifest with the previous SHA for optimistic locking.
-7. **Post‑commit** — SHA badges update, dirty state clears, onboarding/status panels refresh, and a success toast references the short SHA.
+7. **Post-commit** — SHA badges update, dirty state clears, onboarding/status panels refresh, and a success toast references the short SHA.
 
 ---
 
@@ -200,7 +206,7 @@ npm start
 |------|----------|---------|
 | `settings.json` | `%AppData%/VersionTrackerEditor/settings.json` | Repo defaults, created timestamp, onboarding notes. |
 | `token-info.json` | `%AppData%/VersionTrackerEditor/token-info.json` | Last verification metadata, scopes, account details. |
-| `version-tracker.json` | `%AppData%/VersionTrackerEditor/version-tracker.json` | Electron‑store payload (preferences, PAT, migration flag). |
+| `version-tracker.json` | `%AppData%/VersionTrackerEditor/version-tracker.json` | Electron-store payload (preferences, PAT, migration flag). |
 | **Electron store** | `%AppData%/VersionTrackerEditor` | Backing store for UI preferences and token values. |
 | **Manifest** | GitHub repository | Primary `repoversion.json` managed through the app. |
 
@@ -226,7 +232,7 @@ npm start
 
 ## 🔁 Update experience
 
-- Title‑bar glyphs indicate whether an update is available, checking, current, or failed.
+- Title-bar glyphs indicate whether an update is available, checking, current, or failed.
 - The update dialog summarises release notes, download links, and links to the GitHub release page.
 - Background checks run on a timer; manual checks are available from the settings card.
 
@@ -306,8 +312,8 @@ npm start
 ## 🧪 Validation rules
 
 - App IDs must match: `^[a-z0-9][a-z0-9-]{1,}$`
-- Versions follow semantic versioning (pre‑release tags allowed).
-- Build codes are non‑negative integers.
+- Versions follow semantic versioning (pre-release tags allowed).
+- Build codes are non-negative integers.
 - Dates use ISO `YYYY-MM-DD`.
 - URLs must start with `http` or `https`.
 - Duplicate app IDs or history entries are rejected.
@@ -332,7 +338,7 @@ npm start
 ## 🛣 Roadmap
 
 - Automated release notes ingestion for the update dialog.
-- Multi‑repo workspace switching.
+- Multi-repo workspace switching.
 - Additional validation (stable/beta consistency, release date windows).
 - Bulk history editing.
 - Optional notifications (Slack, Teams) after commits.
