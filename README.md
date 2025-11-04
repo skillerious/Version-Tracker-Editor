@@ -9,7 +9,11 @@
   <em>A focused desktop editor for <code>repoversion.json</code> manifests with first-class GitHub integration.</em>
 </p>
 
-<p align="center">
+<p align="cen
+
+https://github.com/user-attachments/assets/0e235ad5-e42b-46f7-82e8-51d3a546cb52
+
+ter">
   <a href="https://www.electronjs.org/">
     <img alt="Electron" src="https://img.shields.io/badge/Electron-31.x-47848F?logo=electron&logoColor=white">
   </a>
