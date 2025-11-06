@@ -592,9 +592,18 @@ ipcMain.handle("app:info", async () => {
   const packaged = typeof app.isPackaged === "boolean"
     ? app.isPackaged
     : (typeof app.isPackaged === "function" ? app.isPackaged() : false);
+  const packageVersion = app.getVersion();
+  let resolvedVersion = packageVersion;
+  try {
+    const manifest = await readJsonIfExists(path.join(__dirname, "version.json"));
+    const manifestVersion = typeof manifest?.version === "string" ? manifest.version.trim() : "";
+    if (manifestVersion) resolvedVersion = manifestVersion;
+  } catch (err) {
+    console.warn("Failed to read version.json for app info:", err);
+  }
   return {
     name: app.getName(),
-    version: app.getVersion(),
+    version: resolvedVersion,
     description: APP_METADATA.description || app.getName(),
     author: APP_METADATA.author || "",
     homepage: APP_METADATA.homepage || "",

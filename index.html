@@ -625,39 +625,97 @@
 
   <!-- Token dialog -->
   <dialog id="tokenDialog" class="dialog-card token-card">
-    <div class="token-header">
-      <div class="token-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" role="presentation" focusable="false">
-          <path d="M12 2a4.5 4.5 0 0 0-4.5 4.5V9H6.5A2.5 2.5 0 0 0 4 11.5v7A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5v-7A2.5 2.5 0 0 0 17.5 9H16.5V6.5A4.5 4.5 0 0 0 12 2Zm0 2a2.5 2.5 0 0 1 2.5 2.5V9h-5V6.5A2.5 2.5 0 0 1 12 4Zm0 7a1.75 1.75 0 0 1 .75 3.33V17a.75.75 0 0 1-1.5 0v-2.67A1.75 1.75 0 0 1 12 11Z"></path>
-        </svg>
-      </div>
-      <div class="token-title">
-        <h3>GitHub Token</h3>
-        <p class="token-subtitle">Paste a fine-grained personal access token with <strong>Contents: read/write</strong> so Version Tracker can commit on your behalf.</p>
+    <div class="token-container">
+      <header class="token-header">
+        <div class="token-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" role="presentation" focusable="false">
+            <path d="M12 2a4.5 4.5 0 0 0-4.5 4.5V9H6.5A2.5 2.5 0 0 0 4 11.5v7A2.5 2.5 0 0 0 6.5 21h11a2.5 2.5 0 0 0 2.5-2.5v-7A2.5 2.5 0 0 0 17.5 9H16.5V6.5A4.5 4.5 0 0 0 12 2Zm0 2a2.5 2.5 0 0 1 2.5 2.5V9h-5V6.5A2.5 2.5 0 0 1 12 4Zm0 7a1.75 1.75 0 0 1 .75 3.33V17a.75.75 0 0 1-1.5 0v-2.67A1.75 1.75 0 0 1 12 11Z"></path>
+          </svg>
+        </div>
+        <div class="token-header-content">
+          <div class="token-heading-row">
+            <h3>GitHub Token</h3>
+            <span id="tokenSourceChip" class="token-chip" hidden>Stored locally</span>
+          </div>
+          <p class="token-subtitle">Paste a fine-grained personal access token with <strong>Contents: read/write</strong> so Version Tracker can commit on your behalf.</p>
+        </div>
+      </header>
+
+      <div class="token-body">
+        <section class="token-panel token-panel-form">
+          <div class="token-panel-header">
+            <div class="token-panel-header-left">
+              <div class="token-panel-header-copy">
+                <h4>Personal access token</h4>
+                <p class="token-panel-subtitle">Store or rotate the credential that lets Version Tracker publish manifests.</p>
+              </div>
+              <span id="tokenSourceNote" class="token-source-note" data-state="empty">No token stored yet. Paste your fine-grained token to continue.</span>
+            </div>
+          </div>
+          <div class="token-field-group">
+            <label for="tokenInput">Token value</label>
+            <div class="token-input">
+              <input id="tokenInput" type="password" placeholder="ghp_xxxxx..." autocomplete="off" spellcheck="false" />
+              <button type="button" id="tokenReveal" class="token-toggle" aria-label="Show token" aria-pressed="false">
+                <span class="toggle-show">Show</span>
+                <span class="toggle-hide" hidden>Hide</span>
+              </button>
+            </div>
+          </div>
+          <div class="token-insights">
+            <article class="token-insight">
+              <div class="token-insight-head">
+                <span class="token-insight-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" role="presentation" focusable="false"><path d="M12 2a4 4 0 0 0-4 4v2H7a3 3 0 0 0-3 3v7a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-7a3 3 0 0 0-3-3h-1V6a4 4 0 0 0-4-4Zm0 2a2 2 0 0 1 2 2v2h-4V6a2 2 0 0 1 2-2Zm0 7a1.75 1.75 0 0 1 .75 3.33V17a.75.75 0 0 1-1.5 0v-2.67A1.75 1.75 0 0 1 12 11Z" fill="currentColor"></path></svg>
+                </span>
+                <strong>Secure storage</strong>
+              </div>
+              <p>Tokens stay encrypted on disk and never leave this device. Rotate them whenever you regenerate credentials.</p>
+              <a id="tokenDocsLink" class="token-docs" href="https://github.com/settings/tokens" target="_blank" rel="noopener">Open GitHub token settings</a>
+            </article>
+            <article class="token-insight">
+              <div class="token-insight-head">
+                <span class="token-insight-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" role="presentation" focusable="false"><path d="M12 3a1 1 0 0 1 .8.4l8 10.5a1 1 0 0 1 .2.6V19a2 2 0 0 1-2 2h-16a2 2 0 0 1-2-2v-4.5a1 1 0 0 1 .2-.6l8-10.5A1 1 0 0 1 12 3Zm0 2.5-7 9.2V19h14v-4.3l-7-9.2ZM12 11a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3Z" fill="currentColor"></path></svg>
+                </span>
+                <strong>Required access</strong>
+              </div>
+              <p>Grant repository-level permissions when generating your token to allow publishing manifest changes.</p>
+              <div class="token-scope-list">
+                <code>Contents: read/write</code>
+                <span class="token-scope-note">Set an expiry reminder so you remember to rotate credentials.</span>
+              </div>
+            </article>
+          </div>
+        </section>
+        <section class="token-panel token-panel-guide">
+          <h4 class="token-section-title">Setup checklist</h4>
+          <ol class="token-steps">
+            <li>
+              <span class="token-step-icon" aria-hidden="true">1</span>
+              <div class="token-step-body">
+                <strong>Generate a fine-grained token</strong>
+                <p>GitHub &gt; Settings &gt; Developer settings &gt; Personal access tokens (fine-grained).</p>
+              </div>
+            </li>
+            <li>
+              <span class="token-step-icon" aria-hidden="true">2</span>
+              <div class="token-step-body">
+                <strong>Target the repository</strong>
+                <p>Give access to <code>skillerious/Version-Tracker</code> with repository contents scope.</p>
+              </div>
+            </li>
+            <li>
+              <span class="token-step-icon" aria-hidden="true">3</span>
+              <div class="token-step-body">
+                <strong>Paste &amp; save it here</strong>
+                <p>Use the field on the left, then press <em>Save token</em>. Verify to confirm permissions.</p>
+              </div>
+            </li>
+          </ol>
+        </section>
       </div>
     </div>
-    <div class="token-body">
-      <ul class="token-points">
-        <li><span class="point-index" aria-hidden="true">1</span>Generate a token via <strong>GitHub &gt; Settings &gt; Developer settings</strong>.</li>
-        <li><span class="point-index" aria-hidden="true">2</span>Allow access to this repository or its organization with repository contents scope.</li>
-        <li><span class="point-index" aria-hidden="true">3</span>Paste and store it securely below.</li>
-      </ul>
-      <div class="field token-field">
-        <label for="tokenInput">Personal access token</label>
-        <div class="token-input">
-          <input id="tokenInput" type="password" placeholder="ghp_xxxxx..." autocomplete="off" spellcheck="false" />
-          <button type="button" id="tokenReveal" class="token-toggle" aria-label="Show token" aria-pressed="false">
-            <span class="toggle-show">Show</span>
-            <span class="toggle-hide">Hide</span>
-          </button>
-        </div>
-      </div>
-      <div class="token-hint">
-        <span class="hint-badge">Secure storage</span>
-        <p>Tokens stay encrypted and never leave this device. Regenerate a new token immediately if it ever leaks.</p>
-      </div>
-      <a id="tokenDocsLink" class="token-docs" href="https://github.com/settings/tokens" target="_blank" rel="noopener">Open GitHub token settings</a>
-  </div>
   <div class="token-actions">
     <div class="token-actions-left">
       <button id="tokenCancel" class="ghost" type="button">Cancel</button>
@@ -875,27 +933,64 @@
       <span class="update-progress-label" id="updateProgressLabel">Checking for updates...</span>
     </div>
     <div class="update-body">
-      <section class="update-section">
-        <h4>Version overview</h4>
-        <div class="update-grid">
-          <div class="update-tile">
-            <span class="update-tile-label">Current version</span>
-            <strong id="updateCurrentVersion">v1.0.0</strong>
-            <span class="update-tile-meta" id="updateCurrentMeta">Installed locally</span>
+      <div class="update-main">
+        <section class="update-section update-section-overview">
+          <h4>Version overview</h4>
+          <div class="update-grid">
+            <div class="update-tile">
+              <span class="update-tile-label">Current version</span>
+              <strong id="updateCurrentVersion">v1.0.0</strong>
+              <span class="update-tile-meta" id="updateCurrentMeta">Installed locally</span>
+            </div>
+            <div class="update-tile is-accent">
+              <span class="update-tile-label">Available version</span>
+              <strong id="updateAvailableVersion">v1.2.0</strong>
+              <span class="update-tile-meta" id="updateAvailableMeta">Released 3 days ago</span>
+            </div>
           </div>
-          <div class="update-tile is-accent">
-            <span class="update-tile-label">Available version</span>
-            <strong id="updateAvailableVersion">v1.2.0</strong>
-            <span class="update-tile-meta" id="updateAvailableMeta">Released 3 days ago</span>
+        </section>
+        <section class="update-section update-section-notes">
+          <div class="update-section-head">
+            <h4>Release highlights</h4>
+            <span class="update-notes-meta" id="updateNotesMeta">Stay informed before you install.</span>
           </div>
-        </div>
-      </section>
-      <section class="update-section">
-        <h4>Release highlights</h4>
-        <div class="update-notes" id="updateReleaseNotes" aria-live="polite">
-          <p class="update-notes-intro">We'll pull in release notes once an update check runs.</p>
-        </div>
-      </section>
+          <div class="update-notes" id="updateReleaseNotes" aria-live="polite">
+            <p class="update-notes-intro">We'll pull in release notes once an update check runs.</p>
+          </div>
+        </section>
+      </div>
+      <aside class="update-side">
+        <section class="update-section update-section-checklist">
+          <h4>Before you update</h4>
+          <ol class="update-checklist">
+            <li>
+              <span class="update-check-icon">1</span>
+              <div>
+                <strong>Review highlights</strong>
+                <p>Skim the release notes on the left for changes that affect your workflow.</p>
+              </div>
+            </li>
+            <li>
+              <span class="update-check-icon">2</span>
+              <div>
+                <strong>Secure your work</strong>
+                <p>Commit pending edits or take a quick backup before installing.</p>
+              </div>
+            </li>
+            <li>
+              <span class="update-check-icon">3</span>
+              <div>
+                <strong>Plan the install</strong>
+                <p>Keep Version Tracker closed during the download to ensure a smooth upgrade.</p>
+              </div>
+            </li>
+          </ol>
+          <div class="update-callout">
+            <span class="update-callout-label">Latest release</span>
+            <span class="update-callout-value" id="updateChecklistMeta">Ready when you are.</span>
+          </div>
+        </section>
+      </aside>
     </div>
     <footer class="update-footer">
       <div class="update-footer-left">
@@ -1048,91 +1143,98 @@
 
   <!-- About dialog -->
   <dialog id="aboutDialog" class="dialog-card">
-    <div class="about-layout">
-      <section class="about-pane about-pane-summary">
-        <div class="about-header">
-          <img src="assets/icon.ico" alt="" class="about-icon" />
-          <div>
-            <div class="about-title-row">
-              <h3 id="aboutAppTitle">Version Tracker</h3>
-              <span id="aboutVersionBadge" class="about-badge">v1.0.0</span>
-            </div>
-            <p id="aboutTagline" class="about-tagline">Loading application details...</p>
+    <div class="about-container">
+      <header class="about-header">
+        <img src="assets/icon.ico" alt="" class="about-icon" />
+        <div class="about-heading">
+          <div class="about-title-row">
+            <h3 id="aboutAppTitle">Version Tracker</h3>
+            <span id="aboutVersionBadge" class="about-badge">v1.0.0</span>
           </div>
+          <p id="aboutTagline" class="about-tagline">Loading application details...</p>
         </div>
-        <div class="about-column about-summary-column">
+      </header>
+
+      <section class="about-card about-card-app">
+        <header class="about-card-header">
           <h4>Application</h4>
-          <ul class="about-list">
-            <li>
-              <strong>Edition</strong>
-              <span id="aboutEdition">Desktop (Electron)</span>
-            </li>
-            <li>
-              <strong>Version</strong>
-              <span id="aboutVersionText">1.0.0</span>
-            </li>
-            <li>
-              <strong>Author</strong>
-              <span id="aboutAuthor">Robin Doak</span>
-            </li>
-            <li>
-              <strong>Data directory</strong>
+        </header>
+        <dl class="about-details">
+          <div class="about-detail">
+            <dt>Edition</dt>
+            <dd id="aboutEdition">Desktop (Electron)</dd>
+          </div>
+          <div class="about-detail">
+            <dt>Version</dt>
+            <dd id="aboutVersionText">1.0.0</dd>
+          </div>
+          <div class="about-detail">
+            <dt>Author</dt>
+            <dd id="aboutAuthor">Robin Doak</dd>
+          </div>
+          <div class="about-detail about-detail-data">
+            <dt>Data directory</dt>
+            <dd>
               <span id="aboutDataDir" class="about-mono">Loading...</span>
               <button id="aboutOpenData" type="button" class="link-button">Reveal in Explorer</button>
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <div class="about-grid">
+        <section class="about-card">
+          <header class="about-card-header">
+            <h4>Environment</h4>
+          </header>
+          <dl class="about-details">
+            <div class="about-detail">
+              <dt>Electron</dt>
+              <dd id="aboutElectronVersion">n/a</dd>
+            </div>
+            <div class="about-detail">
+              <dt>Chromium</dt>
+              <dd id="aboutChromiumVersion">n/a</dd>
+            </div>
+            <div class="about-detail">
+              <dt>Node.js</dt>
+              <dd id="aboutNodeVersion">n/a</dd>
+            </div>
+            <div class="about-detail">
+              <dt>V8</dt>
+              <dd id="aboutV8Version">n/a</dd>
+            </div>
+            <div class="about-detail">
+              <dt>Platform</dt>
+              <dd id="aboutPlatform">n/a</dd>
+            </div>
+          </dl>
+        </section>
+
+        <section class="about-card">
+          <header class="about-card-header">
+            <h4>Resources</h4>
+          </header>
+          <ul class="about-links">
+            <li>
+              <span>Repository</span>
+              <a id="aboutRepoLink" href="#" class="about-anchor">Open on GitHub</a>
+            </li>
+            <li>
+              <span>Issues</span>
+              <a id="aboutIssuesLink" href="#" class="about-anchor">Report a problem</a>
+            </li>
+            <li>
+              <span>Releases</span>
+              <a id="aboutReleasesLink" href="#" class="about-anchor">Latest updates</a>
+            </li>
+            <li>
+              <span>Homepage</span>
+              <a id="aboutHomepageLink" href="#" class="about-anchor">Open website</a>
             </li>
           </ul>
-        </div>
-      </section>
-      <section class="about-pane about-pane-details">
-        <div class="about-columns">
-          <div class="about-column">
-            <h4>Environment</h4>
-            <ul class="about-list">
-              <li>
-                <strong>Electron</strong>
-                <span id="aboutElectronVersion">n/a</span>
-              </li>
-              <li>
-                <strong>Chromium</strong>
-                <span id="aboutChromiumVersion">n/a</span>
-              </li>
-              <li>
-                <strong>Node.js</strong>
-                <span id="aboutNodeVersion">n/a</span>
-              </li>
-              <li>
-                <strong>V8</strong>
-                <span id="aboutV8Version">n/a</span>
-              </li>
-              <li>
-                <strong>Platform</strong>
-                <span id="aboutPlatform">n/a</span>
-              </li>
-            </ul>
-          </div>
-          <div class="about-column">
-            <h4>Resources</h4>
-            <ul class="about-list">
-              <li>
-                <strong>Repository</strong>
-                <a id="aboutRepoLink" href="#" class="about-anchor">Open on GitHub</a>
-              </li>
-              <li>
-                <strong>Issues</strong>
-                <a id="aboutIssuesLink" href="#" class="about-anchor">Report a problem</a>
-              </li>
-              <li>
-                <strong>Releases</strong>
-                <a id="aboutReleasesLink" href="#" class="about-anchor">Latest updates</a>
-              </li>
-              <li>
-                <strong>Homepage</strong>
-                <a id="aboutHomepageLink" href="#" class="about-anchor">Open website</a>
-              </li>
-            </ul>
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
     <div class="dialog-footer">
       <span id="aboutCopyStatus" class="about-copy-status" role="status" aria-live="polite"></span>

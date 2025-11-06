@@ -32,7 +32,8 @@
       "renderer.js",
       "index.html",
       "styles.css",
-      "assets/**/*"
+      "assets/**/*",
+      "version.json"
     ],
     "asar": true,
     "publish": null,

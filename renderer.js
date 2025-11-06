@@ -545,29 +545,44 @@ function refreshUpdateDetails(){
     const value = updateState.latestVersion || updateState.latestVersionRaw || updateState.currentVersion || "";
     availableVersionEl.textContent = formatVersionDisplay(value);
   }
+  let availableMetaText = "";
+  if (updateState.status === "checking") availableMetaText = "Fetching release information...";
+  else if (updateState.status === "pending") availableMetaText = "Awaiting update check.";
+  else if (updateState.status === "error") availableMetaText = "Update check failed.";
+  else if (updateState.release) {
+    const releaseMeta = formatReleaseDateMeta(updateState.releasePublishedAt);
+    if (updateState.status === "available") {
+      const parts = [];
+      if (releaseMeta) parts.push(`Released ${releaseMeta}`);
+      if (updateState.isPrerelease) parts.push("Marked as pre-release");
+      availableMetaText = parts.join(" - ") || "Ready when you are.";
+    } else {
+      const parts = [];
+      if (releaseMeta) parts.push(`Latest release ${releaseMeta}`);
+      parts.push(updateState.isPrerelease ? "Pre-release" : "Latest published build");
+      availableMetaText = parts.join(" - ");
+    }
+  } else {
+    availableMetaText = updateState.status === "current" ? "No newer builds were found." : "Waiting for release data.";
+  }
   const availableMetaEl = $("#updateAvailableMeta");
-  if (availableMetaEl) {
-    let metaText = "";
-    if (updateState.status === "checking") metaText = "Fetching release information...";
-    else if (updateState.status === "pending") metaText = "Awaiting update check.";
-    else if (updateState.status === "error") metaText = "Update check failed.";
+  if (availableMetaEl) availableMetaEl.textContent = availableMetaText;
+  const checklistMetaEl = $("#updateChecklistMeta");
+  if (checklistMetaEl) checklistMetaEl.textContent = availableMetaText || "Ready when you are.";
+  const notesMetaEl = $("#updateNotesMeta");
+  if (notesMetaEl) {
+    let notesMeta = "Stay informed before you install.";
+    if (updateState.status === "checking") notesMeta = "Fetching release notes...";
+    else if (updateState.status === "pending") notesMeta = "Run a check to load the latest notes.";
+    else if (updateState.status === "error") notesMeta = updateState.errorMessage || "Update check failed.";
     else if (updateState.release) {
       const releaseMeta = formatReleaseDateMeta(updateState.releasePublishedAt);
-      if (updateState.status === "available") {
-        const parts = [];
-        if (releaseMeta) parts.push(`Released ${releaseMeta}`);
-        if (updateState.isPrerelease) parts.push("Marked as pre-release");
-        metaText = parts.join(" - ") || "Ready when you are.";
-      } else {
-        const parts = [];
-        if (releaseMeta) parts.push(`Latest release ${releaseMeta}`);
-        parts.push(updateState.isPrerelease ? "Pre-release" : "Latest published build");
-        metaText = parts.join(" - ");
-      }
-    } else {
-      metaText = updateState.status === "current" ? "No newer builds were found." : "Waiting for release data.";
+      const bits = [];
+      if (releaseMeta) bits.push(`Published ${releaseMeta}`);
+      if (updateState.isPrerelease) bits.push("Pre-release build");
+      notesMeta = bits.join(" • ") || notesMeta;
     }
-    availableMetaEl.textContent = metaText;
+    notesMetaEl.textContent = notesMeta;
   }
   const checkBtn = $("#updateCheck");
   if (checkBtn) {
@@ -752,73 +767,40 @@ async function checkForUpdates(options = {}){
       return;
     }
     applyReleaseToUpdateState(release, repo);
-    const latestRaw = updateState.latestVersionRaw || updateState.latestVersion || "";
-    const latestNormalized = normalizeVersionTag(latestRaw) || normalizeVersionTag(updateState.latestVersion || "");
-    // Determine local app info and numeric code for robust comparison against feed's numeric 'code'
-    let localInfo = null;
-    try {
-      localInfo = await vt.app.info();
-    } catch (err) {
-      // Non-fatal — we'll fallback to version.json or semver-derived code
-      console.warn('vt.app.info() unavailable for update comparison:', err);
-      localInfo = null;
+    const appInfo = await getAppInfoSafe();
+    const localMeta = await resolveLocalVersionSnapshot({ versionConfig, appInfo });
+    const remoteMeta = resolveRemoteVersionSnapshot(release);
+    const decision = decideUpdate(remoteMeta, localMeta);
+
+    if (localMeta.versionNormalized && !updateState.currentVersion) {
+      updateState.currentVersion = localMeta.versionNormalized;
+    }
+    if (localMeta.versionRaw && !updateState.currentVersionRaw) {
+      updateState.currentVersionRaw = localMeta.versionRaw;
     }
 
-    // Helper: derive numeric code from semver (major*100000 + minor*1000 + patch)
-    const semverToCode = (v) => {
-      if (!v) return null;
-      try {
-        const parts = String(v).replace(/^v/i, '').split('-')[0].split('.').map(p => Number.parseInt(p || '0', 10));
-        const [maj = 0, min = 0, pat = 0] = parts.concat([0,0,0]).slice(0,3);
-        return (Number(maj) * 100000) + (Number(min) * 1000) + Number(pat);
-      } catch {
-        return null;
-      }
-    };
-
-    // Determine local numeric code: prefer explicit numeric fields on app info, then local version.json, then semver-derived
-    let localCode = null;
-    if (localInfo) {
-      if (Number.isFinite(Number(localInfo.code))) localCode = Number(localInfo.code);
-      else if (Number.isFinite(Number(localInfo.build))) localCode = Number(localInfo.build);
-      else if (Number.isFinite(Number(localInfo.versionCode))) localCode = Number(localInfo.versionCode);
-      if (!localCode && localInfo.version) localCode = semverToCode(localInfo.version);
+    const versionLabel = remoteMeta.versionNormalized || remoteMeta.versionRaw;
+    let nextStatus = decision.isNewer ? "available" : "current";
+    if (decision.reason === "insufficient-data" && !decision.isNewer) {
+      nextStatus = "pending";
     }
-    if (!localCode && versionConfig) {
-      if (Number.isFinite(Number(versionConfig.code))) localCode = Number(versionConfig.code);
-      if (!localCode && versionConfig.version) localCode = semverToCode(versionConfig.version);
-    }
-    // fallback to package.json version if still missing
-    if (!localCode) {
-      try {
-        const pkg = await vt.file.readJSON('package.json');
-        if (pkg && pkg.version) localCode = semverToCode(pkg.version);
-      } catch (err) {}
-    }
-
-    // Normalize feed numeric code
-    const remoteCode = Number.isFinite(Number(release.feedCode)) ? Number(release.feedCode) : null;
-
-    // Decide update using numeric code when available, otherwise fall back to semver compare
-    let nextStatus = 'current';
-    let lead = "You're running the latest Version Tracker build.";
-    if (remoteCode != null && localCode != null) {
-      if (remoteCode > localCode) {
-        nextStatus = 'available';
-        lead = `A newer build (code ${remoteCode}) is available.`;
+    let lead;
+    if (decision.isNewer) {
+      if (decision.reason === "code" && !versionLabel) {
+        lead = remoteMeta.code != null
+          ? `Build ${remoteMeta.code} is available for download.`
+          : "A newer build is available.";
+      } else if (versionLabel) {
+        lead = `Version ${formatVersionDisplay(versionLabel)} is ready. Download to get the latest improvements.`;
       } else {
-        nextStatus = 'current';
+        lead = "A newer build is ready.";
       }
+    } else if ((decision.reason === "semver" || decision.reason === "code") && decision.comparison < 0) {
+      lead = "You're ahead of the published build.";
+    } else if (decision.reason === "insufficient-data") {
+      lead = "We couldn't determine your installed version, so update status may be incomplete.";
     } else {
-      const currentVersion =
-        updateState.currentVersion
-        || (versionConfig && versionConfig.version ? normalizeVersionTag(versionConfig.version) : null)
-        || (localInfo && localInfo.version ? normalizeVersionTag(localInfo.version) : null);
-      const comparison = latestNormalized && currentVersion ? compareSemver(latestNormalized, currentVersion) : (latestNormalized ? 1 : 0);
-      nextStatus = comparison > 0 ? 'available' : 'current';
-      lead = nextStatus === 'available'
-        ? `Version ${formatVersionDisplay(latestNormalized || latestRaw)} is ready. Download to get the latest improvements.`
-        : "You're running the latest Version Tracker build.";
+      lead = "You're running the latest Version Tracker build.";
     }
     setUpdateStatus(nextStatus, { lead });
     refreshUpdateDetails();
@@ -897,14 +879,24 @@ function describeRelativeDays(diff){
   if (!Number.isFinite(diff)) return "No date";
   if (diff === 0) return "Today";
   if (diff === 1) return "Tomorrow";
-  if (diff > 1) return `In ${diff} days`;
+  if (diff > 1) {
+    if (diff < CALENDAR_RECENT_WINDOW) return `In ${diff} days`;
+    if (diff < CALENDAR_STALE_WINDOW) {
+      const weeksAhead = Math.round(diff / 7);
+      return `In ${weeksAhead} wk${weeksAhead === 1 ? "" : "s"}`;
+    }
+    const monthsAhead = Math.round(diff / 30);
+    return `In ${monthsAhead} mo${monthsAhead === 1 ? "" : "s"}`;
+  }
   if (diff === -1) return "Yesterday";
   const abs = Math.abs(diff);
-  if (abs < 30) return `${abs} days ago`;
-  const weeks = Math.round(abs / 7);
-  if (abs < 60) return `${weeks} wk${weeks === 1 ? "" : "s"} ago`;
-  const months = Math.round(abs / 30);
-  return `${months} mo${months === 1 ? "" : "s"} ago`;
+  if (abs < CALENDAR_RECENT_WINDOW) return `${abs} days ago`;
+  if (abs < CALENDAR_STALE_WINDOW) {
+    const weeksAgo = Math.round(abs / 7);
+    return `${weeksAgo} wk${weeksAgo === 1 ? "" : "s"} ago`;
+  }
+  const monthsAgo = Math.round(abs / 30);
+  return `${monthsAgo} mo${monthsAgo === 1 ? "" : "s"} ago`;
 }
 function classifyCalendarStatus(diff){
   if (!Number.isFinite(diff)) return "undated";
@@ -2370,6 +2362,61 @@ function sortCalendarEntries(list){
   past.sort((a, b) => (b.date - a.date) || byName(a, b));
   return upcoming.concat(undated, past);
 }
+function computeCalendarStats(list){
+  const stats = {
+    counts: { upcoming: 0, recent: 0, stale: 0, past: 0, undated: 0 },
+    highlights: { nextUpcoming: null, latestRecent: null, oldestStale: null }
+  };
+  const considerLatestShipped = (entry) => {
+    if (!entry) return;
+    const current = stats.highlights.latestRecent;
+    if (!current) {
+      stats.highlights.latestRecent = entry;
+      return;
+    }
+    if (current.status === "recent" && entry.status !== "recent") return;
+    if (entry.status === "recent" && current.status !== "recent") {
+      stats.highlights.latestRecent = entry;
+      return;
+    }
+    if (entry.diff > current.diff) {
+      stats.highlights.latestRecent = entry;
+    }
+  };
+  list.forEach((entry) => {
+    switch (entry.status) {
+      case "upcoming":
+      case "upcoming-soon":
+        stats.counts.upcoming += 1;
+        if (!stats.highlights.nextUpcoming || entry.diff < stats.highlights.nextUpcoming.diff) {
+          stats.highlights.nextUpcoming = entry;
+        }
+        break;
+      case "recent":
+        stats.counts.recent += 1;
+        considerLatestShipped(entry);
+        break;
+      case "past":
+        stats.counts.past += 1;
+        considerLatestShipped(entry);
+        break;
+      case "stale":
+        stats.counts.stale += 1;
+        stats.counts.past += 1;
+        considerLatestShipped(entry);
+        if (!stats.highlights.oldestStale || entry.diff < stats.highlights.oldestStale.diff) {
+          stats.highlights.oldestStale = entry;
+        }
+        break;
+      case "undated":
+        stats.counts.undated += 1;
+        break;
+      default:
+        break;
+    }
+  });
+  return stats;
+}
 function renderCalendarDivider(label, options = {}){
   const { variant = "" } = options;
   const el = document.createElement("div");
@@ -2516,59 +2563,6 @@ function renderReleaseCalendar(){
   if (includeUndatedCheckbox) includeUndatedCheckbox.checked = state.calendar.includeUndated !== false;
 
   const entries = collectCalendarEntries();
-  let upcomingSoonCount = 0;
-  let recentCount = 0;
-  let staleCount = 0;
-  let undatedCount = 0;
-  let nextUpcoming = null;
-  let latestRecent = null;
-  let oldestStale = null;
-  entries.forEach((entry) => {
-    if (entry.status === "upcoming-soon") upcomingSoonCount += 1;
-    if (entry.status === "recent") recentCount += 1;
-    if (entry.status === "stale") staleCount += 1;
-    if (entry.status === "undated") undatedCount += 1;
-
-    if ((entry.status === "upcoming-soon" || entry.status === "upcoming") && (!nextUpcoming || entry.diff < nextUpcoming.diff)) {
-      nextUpcoming = entry;
-    }
-    if (entry.status === "recent") {
-      if (!latestRecent || entry.diff > latestRecent.diff) latestRecent = entry;
-    } else if (entry.status === "past") {
-      if (!latestRecent || latestRecent.status !== "recent" && entry.diff > latestRecent.diff) latestRecent = entry;
-    }
-    if (entry.status === "stale") {
-      if (!oldestStale || entry.diff < oldestStale.diff) oldestStale = entry;
-    }
-  });
-
-  if (upcomingCountEl) upcomingCountEl.textContent = String(upcomingSoonCount);
-  if (recentCountEl) recentCountEl.textContent = String(recentCount);
-  if (staleCountEl) staleCountEl.textContent = String(staleCount);
-  if (undatedCountEl) undatedCountEl.textContent = String(undatedCount);
-  if (undatedSummaryEl) undatedSummaryEl.textContent = String(undatedCount);
-  if (undatedSummaryMetaEl) {
-    undatedSummaryMetaEl.textContent = undatedCount
-      ? `Set ${undatedCount === 1 ? "this track" : "these tracks"} a target date to stay on schedule.`
-      : "All tracked releases have target dates.";
-  }
-
-  const updateHighlight = (valueEl, metaEl, entry, emptyMeta) => {
-    if (!valueEl || !metaEl) return;
-    if (entry) {
-      valueEl.textContent = entry.appName || "--";
-      const parts = [entry.trackLabel];
-      if (entry.rawDate) parts.push(entry.rawDate);
-      if (entry.relative && entry.relative !== "No date") parts.push(entry.relative);
-      metaEl.textContent = parts.filter(Boolean).join(" | ");
-    } else {
-      valueEl.textContent = "--";
-      metaEl.textContent = emptyMeta;
-    }
-  };
-  updateHighlight(nextValueEl, nextMetaEl, nextUpcoming, "No upcoming releases scheduled.");
-  updateHighlight(recentValueEl, recentMetaEl, latestRecent, "No recent releases recorded.");
-  updateHighlight(staleValueEl, staleMetaEl, oldestStale, "All tracks look healthy.");
 
   const filters = state.calendar.filters;
   const view = state.calendar.view || "all";
@@ -2590,31 +2584,90 @@ function renderReleaseCalendar(){
     if (checkbox) checkbox.checked = Boolean(filters[key]);
   });
 
-  const filtered = entries.filter((entry) => {
+  const matchesSearchTerm = (entry) => {
+    if (!searchTerm) return true;
+    const parts = [
+      entry.appName,
+      entry.trackLabel,
+      entry.version,
+      entry.statusLabel,
+      entry.relative,
+      entry.notesFull,
+      entry.rawDate,
+      Number.isFinite(entry.code) ? `code ${entry.code}` : ""
+    ];
+    entry.links.forEach((link) => parts.push(link.label, link.href));
+    const haystack = parts.filter(Boolean).join(" | ").toLowerCase();
+    return haystack.includes(searchTerm);
+  };
+
+  const scopedEntries = entries.filter((entry) => {
     if (!filters[entry.type]) return false;
     if (!includeUndated && entry.status === "undated") return false;
-    if (view === "upcoming") return entry.status === "upcoming" || entry.status === "upcoming-soon";
-    if (view === "recent") return entry.status === "recent";
-    if (view === "stale") return entry.status === "stale";
-    if (searchTerm) {
-      const parts = [
-        entry.appName,
-        entry.trackLabel,
-        entry.version,
-        entry.statusLabel,
-        entry.relative,
-        entry.notesFull,
-        entry.rawDate,
-        Number.isFinite(entry.code) ? `code ${entry.code}` : ""
-      ];
-      entry.links.forEach((link) => parts.push(link.label, link.href));
-      const haystack = parts.filter(Boolean).join(" | ").toLowerCase();
-      if (!haystack.includes(searchTerm)) return false;
-    }
+    if (!matchesSearchTerm(entry)) return false;
     return true;
   });
+  const visibleEntries = view === "all"
+    ? scopedEntries
+    : scopedEntries.filter((entry) => {
+        if (view === "upcoming") return entry.status === "upcoming" || entry.status === "upcoming-soon";
+        if (view === "recent") return entry.status === "recent";
+        if (view === "stale") return entry.status === "stale";
+        return true;
+      });
 
-  const sorted = sortCalendarEntries(filtered);
+  const globalStats = computeCalendarStats(entries);
+  const scopedStats = computeCalendarStats(scopedEntries);
+
+  if (upcomingCountEl) upcomingCountEl.textContent = String(scopedStats.counts.upcoming);
+  if (recentCountEl) recentCountEl.textContent = String(scopedStats.counts.recent);
+  if (staleCountEl) staleCountEl.textContent = String(scopedStats.counts.stale);
+
+  const totalUndated = globalStats.counts.undated;
+  const visibleUndated = scopedStats.counts.undated;
+  if (undatedCountEl) undatedCountEl.textContent = String(totalUndated);
+  if (undatedSummaryEl) undatedSummaryEl.textContent = String(totalUndated);
+  if (undatedSummaryMetaEl) {
+    const hiddenUndated = Math.max(0, totalUndated - visibleUndated);
+    if (!totalUndated) {
+      undatedSummaryMetaEl.textContent = "All tracked releases have target dates.";
+    } else if (hiddenUndated > 0) {
+      const plural = hiddenUndated === 1 ? "track is" : "tracks are";
+      undatedSummaryMetaEl.textContent = `${hiddenUndated} undated ${plural} hidden by filters - enable "Include undated" to review everything.`;
+    } else {
+      undatedSummaryMetaEl.textContent = `Set ${totalUndated === 1 ? "this track" : "these tracks"} a target date to stay on schedule.`;
+    }
+  }
+
+  const updateHighlight = (valueEl, metaEl, entry, emptyMeta) => {
+    if (!valueEl || !metaEl) return;
+    if (entry) {
+      valueEl.textContent = entry.appName || "--";
+      const parts = [entry.trackLabel];
+      if (entry.rawDate) parts.push(entry.rawDate);
+      if (entry.relative && entry.relative !== "No date") parts.push(entry.relative);
+      metaEl.textContent = parts.filter(Boolean).join(" | ");
+    } else {
+      valueEl.textContent = "--";
+      metaEl.textContent = emptyMeta;
+    }
+  };
+  const upcomingEmptyMessage = globalStats.counts.upcoming && !scopedStats.counts.upcoming
+    ? "No upcoming releases match your filters."
+    : "No upcoming releases scheduled.";
+  const globalHistory = globalStats.counts.recent + globalStats.counts.past;
+  const scopedHistory = scopedStats.counts.recent + scopedStats.counts.past;
+  const recentEmptyMessage = globalHistory && !scopedHistory
+    ? "No shipped releases match your filters."
+    : "No release history recorded yet.";
+  const staleEmptyMessage = globalStats.counts.stale && !scopedStats.counts.stale
+    ? "No stale tracks match your filters."
+    : "All tracks look healthy.";
+  updateHighlight(nextValueEl, nextMetaEl, scopedStats.highlights.nextUpcoming, upcomingEmptyMessage);
+  updateHighlight(recentValueEl, recentMetaEl, scopedStats.highlights.latestRecent, recentEmptyMessage);
+  updateHighlight(staleValueEl, staleMetaEl, scopedStats.highlights.oldestStale, staleEmptyMessage);
+
+  const sorted = sortCalendarEntries(visibleEntries);
   timeline.replaceChildren();
   if (!sorted.length) {
     empty.hidden = false;
@@ -3439,9 +3492,36 @@ async function openTokenDialog(){
   const stored = await vt.token.get();
   const tokenValue = stored?.token || "";
   $("#tokenInput").value = tokenValue;
+  const tokenSourceChip = $("#tokenSourceChip");
+  const tokenSourceNote = $("#tokenSourceNote");
+  const isEnvToken = stored?.source === "env";
+  const hasToken = Boolean(tokenValue);
+  if (tokenSourceChip) {
+    if (hasToken || isEnvToken) {
+      tokenSourceChip.textContent = isEnvToken ? "Environment managed" : "Stored locally";
+      tokenSourceChip.dataset.variant = isEnvToken ? "env" : "local";
+      tokenSourceChip.hidden = false;
+    } else {
+      tokenSourceChip.hidden = true;
+      tokenSourceChip.removeAttribute("data-variant");
+    }
+  }
+  if (tokenSourceNote) {
+    let note = "No token stored yet. Paste your fine-grained token to continue.";
+    let state = "empty";
+    if (isEnvToken) {
+      note = "Token is supplied via environment variables. Paste a new token here to override it locally.";
+      state = "env";
+    } else if (hasToken) {
+      note = "Stored tokens are encrypted on disk. Update or replace it here if you rotate credentials.";
+      state = "stored";
+    }
+    tokenSourceNote.textContent = note;
+    tokenSourceNote.dataset.state = state;
+    tokenSourceNote.hidden = false;
+  }
   const tokenRemove = $("#tokenRemove");
   if (tokenRemove) {
-    const isEnvToken = stored?.source === "env";
     tokenRemove.disabled = !tokenValue || isEnvToken;
     tokenRemove.title = isEnvToken
       ? "Token is supplied via environment variables and cannot be removed from this device."
@@ -4609,17 +4689,26 @@ function setAboutStatus(message, timeout = 3200){
     }, timeout);
   }
 }
+function resolveAboutVersion(info){
+  const configSource = updateState.currentVersionRaw || updateState.currentVersion || "";
+  const configVersion = normalizeVersionTag(configSource) || String(configSource || "").trim();
+  if (configVersion) return configVersion;
+  const raw = info?.version;
+  if (raw == null) return "";
+  return normalizeVersionTag(raw) || String(raw || "").trim();
+}
 function refreshAboutDialog(info){
   const data = info || lastAboutInfo || null;
   const name = data?.name || "Version Tracker";
   $("#aboutAppTitle").textContent = name;
 
-  let versionValue = data?.version ?? "";
-  if (versionValue == null) versionValue = "";
-  versionValue = String(versionValue).trim();
-  const version = versionValue || "n/a";
-  $("#aboutVersionBadge").textContent = versionValue ? `v${versionValue}` : "v??";
-  $("#aboutVersionText").textContent = version;
+  const resolvedVersion = resolveAboutVersion(data);
+  const hasVersion = Boolean(resolvedVersion);
+  const badgeVersion = normalizeVersionTag(resolvedVersion);
+  $("#aboutVersionBadge").textContent = hasVersion
+    ? (badgeVersion ? `v${badgeVersion}` : resolvedVersion)
+    : "v??";
+  $("#aboutVersionText").textContent = hasVersion ? resolvedVersion : "n/a";
 
   const taglineValue = (data?.description || ABOUT_DEFAULT_TAGLINE || "").trim();
   $("#aboutTagline").textContent = taglineValue || ABOUT_DEFAULT_TAGLINE;
@@ -4662,7 +4751,8 @@ function buildAboutReport(info){
   const repo = resolveActiveRepo(data?.repo);
   const lines = [];
   const name = data?.name || "Version Tracker";
-  const version = data?.version ? `v${data.version}` : "";
+  const resolvedVersion = resolveAboutVersion(data);
+  const version = resolvedVersion ? `v${resolvedVersion}` : "";
   lines.push([name, version].filter(Boolean).join(" | ").trim());
   if (data?.description) lines.push(data.description);
   lines.push("");
@@ -5402,82 +5492,248 @@ const searchRepo = Performance.debounce(async function() {
 }, 350); // Debounce wait time of 350ms
 
 // -------- Update management
+const updateVersionCache = { packageVersion: undefined, packageWarned: false };
+
+function coerceNumeric(value) {
+  if (value == null) return null;
+  const num = Number(String(value).trim());
+  return Number.isFinite(num) ? num : null;
+}
+
+function semverToBuildCode(version) {
+  const normalized = normalizeVersionTag(version);
+  if (!normalized) return null;
+  try {
+    const [core] = normalized.split("-", 1);
+    const parts = core.split(".").map((segment) => {
+      const parsed = Number.parseInt(segment || "0", 10);
+      return Number.isNaN(parsed) ? 0 : parsed;
+    });
+    const [major = 0, minor = 0, patch = 0] = parts.concat([0, 0, 0]).slice(0, 3);
+    return (major * 100000) + (minor * 1000) + patch;
+  } catch {
+    return null;
+  }
+}
+
+async function getPackageVersionSafe() {
+  if (updateVersionCache.packageVersion !== undefined) return updateVersionCache.packageVersion;
+  try {
+    const pkg = await vt.file.readJSON("package.json");
+    const version = typeof pkg?.version === "string" ? pkg.version.trim() : "";
+    updateVersionCache.packageVersion = version || null;
+  } catch (err) {
+    if (!updateVersionCache.packageWarned) {
+      console.debug("Unable to read package.json for version info:", err);
+      updateVersionCache.packageWarned = true;
+    }
+    updateVersionCache.packageVersion = null;
+  }
+  return updateVersionCache.packageVersion;
+}
+
+async function getAppInfoSafe() {
+  try {
+    return await vt.app.info();
+  } catch (err) {
+    if (!getAppInfoSafe._warned) {
+      console.warn("vt.app.info() unavailable for update comparison:", err);
+      getAppInfoSafe._warned = true;
+    }
+    return null;
+  }
+}
+
+async function resolveLocalVersionSnapshot({ versionConfig = null, appInfo = null } = {}) {
+  const versionCandidates = [];
+  const codeCandidates = [];
+
+  const addVersionCandidate = (value) => {
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (trimmed) versionCandidates.push(trimmed);
+  };
+  const addCodeCandidate = (value) => {
+    const num = coerceNumeric(value);
+    if (num != null) codeCandidates.push(num);
+  };
+
+  addVersionCandidate(updateState.currentVersionRaw);
+  addVersionCandidate(updateState.currentVersion);
+  if (versionConfig?.version) addVersionCandidate(versionConfig.version);
+  if (appInfo?.version) addVersionCandidate(appInfo.version);
+
+  addCodeCandidate(appInfo?.code);
+  addCodeCandidate(appInfo?.build);
+  addCodeCandidate(appInfo?.versionCode);
+  addCodeCandidate(versionConfig?.code);
+
+  let packageVersion = null;
+  if (!versionCandidates.length || !codeCandidates.length) {
+    packageVersion = await getPackageVersionSafe();
+    if (packageVersion) addVersionCandidate(packageVersion);
+  }
+
+  let versionRaw = "";
+  let versionNormalized = "";
+  for (const candidate of versionCandidates) {
+    const normalized = normalizeVersionTag(candidate);
+    if (!versionRaw) versionRaw = candidate;
+    if (normalized) {
+      versionNormalized = normalized;
+      break;
+    }
+  }
+  if (!versionNormalized && versionRaw) {
+    versionNormalized = normalizeVersionTag(versionRaw);
+  }
+
+  if (!versionRaw && packageVersion) {
+    versionRaw = packageVersion;
+    versionNormalized = normalizeVersionTag(packageVersion);
+  }
+
+  if (!codeCandidates.length && versionNormalized) {
+    const derived = semverToBuildCode(versionNormalized);
+    if (derived != null) codeCandidates.push(derived);
+  }
+  if (!codeCandidates.length && packageVersion) {
+    const derived = semverToBuildCode(packageVersion);
+    if (derived != null) codeCandidates.push(derived);
+  }
+
+  const code = codeCandidates.length ? codeCandidates[0] : null;
+
+  return { versionRaw, versionNormalized, code };
+}
+
+function resolveRemoteVersionSnapshot(release) {
+  const stableTrack = release?.feed?.tracks?.stable || {};
+  const versionCandidates = [
+    release?.tag_name,
+    release?.name,
+    typeof stableTrack?.version === "string" ? stableTrack.version : ""
+  ];
+  let versionRaw = "";
+  let versionNormalized = "";
+  for (const candidate of versionCandidates) {
+    const text = typeof candidate === "string" ? candidate.trim() : "";
+    if (!text) continue;
+    if (!versionRaw) versionRaw = text;
+    const normalized = normalizeVersionTag(text);
+    if (normalized) {
+      versionNormalized = normalized;
+      break;
+    }
+  }
+  if (!versionNormalized && versionRaw) {
+    versionNormalized = normalizeVersionTag(versionRaw);
+  }
+
+  const codeCandidates = [];
+  const feedCode = coerceNumeric(release?.feedCode);
+  if (feedCode != null) codeCandidates.push(feedCode);
+  const trackCode = coerceNumeric(stableTrack?.code);
+  if (trackCode != null && !codeCandidates.length) codeCandidates.push(trackCode);
+  if (!codeCandidates.length && versionNormalized) {
+    const derived = semverToBuildCode(versionNormalized);
+    if (derived != null) codeCandidates.push(derived);
+  }
+
+  return {
+    versionRaw,
+    versionNormalized,
+    code: codeCandidates.length ? codeCandidates[0] : null
+  };
+}
+
+function decideUpdate(remoteMeta, localMeta) {
+  const haveRemoteSemver = Boolean(remoteMeta?.versionNormalized);
+  const haveLocalSemver = Boolean(localMeta?.versionNormalized);
+  const haveRemoteCode = Number.isFinite(remoteMeta?.code);
+  const haveLocalCode = Number.isFinite(localMeta?.code);
+
+  if (haveRemoteSemver && haveLocalSemver) {
+    const comparison = compareSemver(remoteMeta.versionNormalized, localMeta.versionNormalized);
+    return {
+      isNewer: comparison > 0,
+      reason: "semver",
+      comparison,
+      remote: remoteMeta,
+      local: localMeta
+    };
+  }
+
+  if (haveRemoteCode && haveLocalCode) {
+    const comparison = remoteMeta.code === localMeta.code ? 0 : (remoteMeta.code > localMeta.code ? 1 : -1);
+    return {
+      isNewer: comparison > 0,
+      reason: "code",
+      comparison,
+      remote: remoteMeta,
+      local: localMeta
+    };
+  }
+
+  if (haveRemoteSemver && !haveLocalSemver) {
+    return {
+      isNewer: true,
+      reason: "semver-local-missing",
+      comparison: 1,
+      remote: remoteMeta,
+      local: localMeta
+    };
+  }
+
+  return {
+    isNewer: false,
+    reason: "insufficient-data",
+    comparison: 0,
+    remote: remoteMeta,
+    local: localMeta
+  };
+}
+
 async function checkForNewVersion(options = {}) {
   const { notify = true } = options;
   try {
     const release = await fetchLatestRelease();
     if (!release) return false;
+
     const versionConfig = await syncVersionConfig({ silent: true });
+    const appInfo = await getAppInfoSafe();
+    const localMeta = await resolveLocalVersionSnapshot({ versionConfig, appInfo });
+    const remoteMeta = resolveRemoteVersionSnapshot(release);
+    const decision = decideUpdate(remoteMeta, localMeta);
 
-    // Determine local numeric code as in the main check flow
-    let localInfo = null;
-    try { localInfo = await vt.app.info(); } catch (e) { localInfo = null; }
-    const semverToCode = (v) => {
-      if (!v) return null;
-      try {
-        const parts = String(v).replace(/^v/i, '').split('-')[0].split('.').map(p => Number.parseInt(p || '0', 10));
-        const [maj = 0, min = 0, pat = 0] = parts.concat([0,0,0]).slice(0,3);
-        return (Number(maj) * 100000) + (Number(min) * 1000) + Number(pat);
-      } catch { return null; }
-    };
-    let localCode = null;
-    if (localInfo) {
-      if (Number.isFinite(Number(localInfo.code))) localCode = Number(localInfo.code);
-      else if (Number.isFinite(Number(localInfo.build))) localCode = Number(localInfo.build);
-      else if (Number.isFinite(Number(localInfo.versionCode))) localCode = Number(localInfo.versionCode);
-      if (!localCode && localInfo.version) localCode = semverToCode(localInfo.version);
+    if (localMeta.versionNormalized && !updateState.currentVersion) {
+      updateState.currentVersion = localMeta.versionNormalized;
     }
-    if (!localCode && versionConfig) {
-      if (Number.isFinite(Number(versionConfig.code))) localCode = Number(versionConfig.code);
-      if (!localCode && versionConfig.version) localCode = semverToCode(versionConfig.version);
+    if (localMeta.versionRaw && !updateState.currentVersionRaw) {
+      updateState.currentVersionRaw = localMeta.versionRaw;
     }
 
-    const latestRaw = release.tag_name || release.name || "";
-    const latestNormalized = normalizeVersionTag(latestRaw);
-    const latestDisplay = latestNormalized
-      ? formatVersionDisplay(latestNormalized).replace(/^v/i, "V")
-      : "";
-
-    const remoteCode = Number.isFinite(Number(release.feedCode)) ? Number(release.feedCode) : null;
-    if (remoteCode != null && localCode != null) {
-      if (remoteCode > localCode) {
-        if (notify) {
-          showToast("Update Available", {
-            variant: "info",
-            icon: TOAST_ICONS.updateAvailable,
-            meta: latestDisplay
-              ? `Version ${latestDisplay} is available`
-              : `Build ${remoteCode} is available`,
-            duration: 10000,
-            actions: [{ label: "Update", onClick: () => openUpdateDialog(release) }]
-          });
-        }
-        return true;
-      }
-      return false;
-    }
-
-    // fall back to version string comparison
-    const localVersion =
-      updateState.currentVersion
-      || (versionConfig && versionConfig.version ? normalizeVersionTag(versionConfig.version) : null)
-      || (localInfo && localInfo.version ? normalizeVersionTag(localInfo.version) : null);
-    if (latestNormalized && localVersion) {
-      const newer = compareSemver(latestNormalized, localVersion) > 0;
-      if (newer && notify) {
+    if (decision.isNewer) {
+      if (notify) {
+        const versionLabel = remoteMeta.versionNormalized || remoteMeta.versionRaw;
+        const metaText = versionLabel
+          ? `Version ${formatVersionDisplay(versionLabel)} is available`
+          : remoteMeta.code != null
+            ? `Build ${remoteMeta.code} is available`
+            : "A newer build is available";
         showToast("Update Available", {
           variant: "info",
           icon: TOAST_ICONS.updateAvailable,
-          meta: `Version ${latestDisplay} is available`,
+          meta: metaText,
           duration: 10000,
           actions: [{ label: "Update", onClick: () => openUpdateDialog(release) }]
         });
       }
-      return newer;
+      return true;
     }
     return false;
   } catch (error) {
-    console.error('Version check failed:', error);
+    console.error("Version check failed:", error);
     return false;
   }
 }
@@ -5600,7 +5856,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   applySettingsPreferences({ skipSave: true });
   bind();
   initBlank();
-  await syncVersionConfig();
+  await syncVersionConfig({ silent: true });
   refreshUpdateDetails();
   // Attempt to load stored token early so the settings snapshot shows correct state immediately
   let tokenSnapshot = null;
