@@ -30,10 +30,7 @@
 
 ## 🎥 Demo video
 
-
-
 https://github.com/user-attachments/assets/0e235ad5-e42b-46f7-82e8-51d3a546cb52
-
 
 ---
 
@@ -101,12 +98,12 @@ https://github.com/user-attachments/assets/0e235ad5-e42b-46f7-82e8-51d3a546cb52
 ## 🖼 Screenshots
 
 | Main editor | Release calendar |
-|-------------|-----------------|
-| ![Main editor](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-10-31-234623.png) | ![Release calendar](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-10-31-234640.png) |
+|-------------|------------------|
+| ![Main editor](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-05-235510.png) | ![Release calendar](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-05-235525.png) |
 
-| About dialog | Token dialog |
-|--------------|--------------|
-| ![About dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-10-31-234649.png) | ![Token dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-10-31-234707.png) |
+| About dialog | Token dialog | Settings dialog |
+|--------------|--------------|-----------------|
+| ![About dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-06-000228.png) | ![Token dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-05-235456.png) | ![Settings dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-05-235547.png) |
 
 ---
 
