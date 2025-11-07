@@ -1085,10 +1085,12 @@ function updateDirtyIndicator(){
 function setDirty(flag){
   state.dirty = !!flag;
   updateDirtyIndicator();
+  renderPreviewInsights();
 }
 function setFormDirty(flag){
   state.formDirty = !!flag;
   updateDirtyIndicator();
+  renderPreviewInsights();
 }
 function setButtonBusy(btn, busy){
   if (!btn) return;
@@ -2820,7 +2822,7 @@ function applyPendingChanges(options = {}){
     applied = true;
   }
   if (updatePreview && (applied || state.dirty)) {
-    $("#previewBox").value = buildJSON();
+    updatePreviewDisplay();
   }
   if (applied && !silent) {
     setStatus("Pending form changes applied.", 3000);
@@ -2934,6 +2936,206 @@ function stampGenerated(){
   return ts;
 }
 function buildJSON(){ return JSON.stringify(state.data, null, 2); }
+const JSON_HIGHLIGHT_PATTERN = /("(?:\\u[a-fA-F0-9]{4}|\\[^u]|[^"\\])*"(?:\s*:)?|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g;
+function byteLength(text){
+  if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(text || "").length;
+  try {
+    return unescape(encodeURIComponent(text || "")).length;
+  } catch {
+    return (text || "").length;
+  }
+}
+function formatBytes(bytes){
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  let value = bytes;
+  let idx = 0;
+  while (value >= 1024 && idx < units.length - 1) {
+    value /= 1024;
+    idx += 1;
+  }
+  const precision = value >= 100 || idx === 0 ? 0 : value >= 10 ? 1 : 2;
+  return `${value.toFixed(precision)} ${units[idx]}`;
+}
+function describeGeneratedTimestamp(value){
+  if (!value) return "Generated timestamp pending";
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return `Generated ${value}`;
+  const diff = Date.now() - dt.getTime();
+  const abs = Math.abs(diff);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  let relative = "just now";
+  if (abs >= day) {
+    const days = Math.round(abs / day);
+    relative = `${days} day${days === 1 ? "" : "s"} ${diff >= 0 ? "ago" : "from now"}`;
+  } else if (abs >= hour) {
+    const hours = Math.round(abs / hour);
+    relative = `${hours} hr${hours === 1 ? "" : "s"} ${diff >= 0 ? "ago" : "from now"}`;
+  } else if (abs >= minute) {
+    const mins = Math.round(abs / minute);
+    relative = `${mins} min${mins === 1 ? "" : "s"} ${diff >= 0 ? "ago" : "from now"}`;
+  }
+  const local = dt.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return `Generated ${relative} • ${local}`;
+}
+function highlightJson(text){
+  if (!text) return "";
+  const safe = escapeHtml(text);
+  const withTokens = safe.replace(JSON_HIGHLIGHT_PATTERN, (match) => {
+    if (match[0] === "\"") {
+      if (match.endsWith(":")) {
+        const key = match.slice(0, -1);
+        return `<span class="json-key">${key}</span><span class="json-punctuation">:</span>`;
+      }
+      return `<span class="json-string">${match}</span>`;
+    }
+    if (match === "true" || match === "false") return `<span class="json-boolean">${match}</span>`;
+    if (match === "null") return `<span class="json-null">${match}</span>`;
+    return `<span class="json-number">${match}</span>`;
+  });
+  return withTokens.replace(/([{}\[\],])/g, "<span class=\"json-punctuation\">$1</span>");
+}
+function updatePreviewMeta(text){
+  const content = typeof text === "string" ? text : "";
+  const sizeEl = $("#previewMetaSize");
+  if (sizeEl) sizeEl.textContent = formatBytes(byteLength(content));
+  const lineEl = $("#previewMetaLines");
+  if (lineEl) {
+    const lines = content ? content.split(/\r?\n/).length : 0;
+    lineEl.textContent = `${lines || 0} line${lines === 1 ? "" : "s"}`;
+  }
+  const generatedEl = $("#previewMetaGenerated");
+  if (generatedEl) generatedEl.textContent = describeGeneratedTimestamp(state.data.generated);
+}
+function computePreviewInsights(){
+  const apps = state.data.apps || [];
+  const entries = collectCalendarEntries();
+  const stats = computeCalendarStats(entries);
+  let readyToShip = 0;
+  let missingDates = 0;
+  let missingVersions = 0;
+  let betaCoverage = 0;
+  let historyCount = 0;
+  apps.forEach((app) => {
+    const stable = app?.tracks?.stable || null;
+    const stableVersion = typeof stable?.version === "string" ? stable.version.trim() : stable?.version;
+    const stableDate = typeof stable?.date === "string" ? stable.date.trim() : stable?.date;
+    if (stableVersion && stableDate) readyToShip += 1;
+    if (!stableDate) missingDates += 1;
+    if (!stableVersion) missingVersions += 1;
+    const beta = app?.tracks?.beta;
+    if (hasTrackData(beta)) betaCoverage += 1;
+    if (Array.isArray(app.history)) {
+      historyCount += app.history.filter(hasHistoryData).length;
+    }
+  });
+  return {
+    appsCount: apps.length,
+    readyToShip,
+    missingDates,
+    missingVersions,
+    betaCoverage,
+    historyCount,
+    nextRelease: stats.highlights.nextUpcoming || null,
+    stale: stats.counts.stale,
+    undated: stats.counts.undated,
+    stats
+  };
+}
+function renderPreviewInsights(){
+  const info = computePreviewInsights();
+  const {
+    appsCount,
+    readyToShip,
+    betaCoverage,
+    historyCount,
+    nextRelease,
+    stale,
+    undated,
+    stats,
+    missingVersions,
+    missingDates
+  } = info;
+  const formatRatio = (value, total) => `${value}/${total || 0}`;
+  const appsValue = $("#previewStatApps");
+  if (appsValue) appsValue.textContent = String(appsCount || 0);
+  const appsMeta = $("#previewStatAppsMeta");
+  if (appsMeta) {
+    if (!appsCount) {
+      appsMeta.textContent = "Add an app to start tracking.";
+    } else {
+      const parts = [`${readyToShip}/${appsCount} ready to ship`];
+      if (missingVersions) parts.push(`${missingVersions} missing version${missingVersions === 1 ? "" : "s"}`);
+      appsMeta.textContent = parts.join(" • ");
+    }
+  }
+  const nextValue = $("#previewStatNext");
+  const nextMeta = $("#previewStatNextMeta");
+  if (nextValue && nextMeta) {
+    if (nextRelease) {
+      nextValue.textContent = nextRelease.rawDate || nextRelease.month || "--";
+      nextMeta.textContent = `${nextRelease.appName} • ${nextRelease.trackLabel} • ${nextRelease.relative}`;
+    } else {
+      nextValue.textContent = "--";
+      nextMeta.textContent = stats.counts.upcoming
+        ? "Upcoming releases are hidden by filters."
+        : "Add target dates to surface the schedule.";
+    }
+  }
+  const healthValue = $("#previewStatHealth");
+  const healthMeta = $("#previewStatHealthMeta");
+  if (healthValue && healthMeta) {
+    const issues = stale + undated;
+    if (!appsCount) {
+      healthValue.textContent = "--";
+      healthMeta.textContent = "Health insights appear after you add data.";
+    } else if (!issues) {
+      healthValue.textContent = "Healthy";
+      healthMeta.textContent = "No stale or undated tracks.";
+    } else {
+      healthValue.textContent = `${issues} issue${issues === 1 ? "" : "s"}`;
+      const parts = [];
+      if (stale) parts.push(`${stale} stale`);
+      if (undated) parts.push(`${undated} undated`);
+      if (missingDates) parts.push(`${missingDates} stable date${missingDates === 1 ? "" : "s"} missing`);
+      healthMeta.textContent = parts.join(" • ") || "Needs attention";
+    }
+  }
+  const historyValue = $("#previewStatHistory");
+  const historyMeta = $("#previewStatHistoryMeta");
+  if (historyValue && historyMeta) {
+    historyValue.textContent = historyCount ? String(historyCount) : "--";
+    if (!appsCount) historyMeta.textContent = "History coverage updates automatically.";
+    else historyMeta.textContent = `History entries • beta coverage ${formatRatio(betaCoverage, appsCount)}`;
+  }
+  const statusPill = $("#previewDatasetStatus");
+  if (statusPill) {
+    const dirty = state.formDirty || state.dirty;
+    statusPill.textContent = dirty ? "Unsaved edits" : "Snapshot synced";
+    statusPill.classList.toggle("is-dirty", dirty);
+  }
+}
+function updatePreviewDisplay(text){
+  const payload = typeof text === "string" ? text : buildJSON();
+  const previewBox = $("#previewBox");
+  if (previewBox) previewBox.value = payload;
+  const previewCode = $("#previewCode");
+  if (previewCode) {
+    const trimmed = payload.trim();
+    if (trimmed) {
+      previewCode.innerHTML = highlightJson(payload);
+      previewCode.dataset.empty = "false";
+    } else {
+      previewCode.innerHTML = "<span class=\"json-placeholder\">JSON preview will appear here once data is added.</span>";
+      previewCode.dataset.empty = "true";
+    }
+  }
+  updatePreviewMeta(payload);
+  renderPreviewInsights();
+  return payload;
+}
 function updateIdPill(){
   const id = $("#edAppId").value.trim();
   if (!id) return pill($("#pillId"), "dim", "--");
@@ -3014,8 +3216,7 @@ async function fetchFromGitHub(){
       clearForm();
     }
 
-    const previewBox = $("#previewBox");
-    if (previewBox) previewBox.value = buildJSON();
+    updatePreviewDisplay();
     
     resetWizardForm();
 
@@ -3240,8 +3441,7 @@ async function commitToGitHub(){
 
     stampGenerated();
     const text = buildJSON();
-    const previewBox = $("#previewBox");
-    if (previewBox) previewBox.value = text;
+    updatePreviewDisplay(text);
 
     setStatus("Committing to GitHub...", 0);
 
@@ -3434,7 +3634,7 @@ async function openLocal(){
     state.currentIndex = state.data.apps?.length ? 0 : null;
     renderApps();
     if (state.currentIndex != null) populateForm(state.data.apps[state.currentIndex]); else clearForm();
-    $("#previewBox").value = buildJSON();
+    updatePreviewDisplay();
     const fileName = res.path.split(/[\\/]/).pop();
     setStatus(`Loaded ${fileName}`, 5000);
     showToast("Local manifest loaded", { variant: "info", icon: TOAST_ICONS.manifestLoaded, meta: fileName });
@@ -3452,7 +3652,7 @@ async function saveLocal(){
   }
   stampGenerated();
   const text = buildJSON();
-  $("#previewBox").value = text;
+  updatePreviewDisplay(text);
   const res = await vt.file.saveJSON(text);
   if (!res?.canceled) {
     const fileName = res.path.split(/[\\/]/).pop();
@@ -5122,7 +5322,7 @@ function bind(){
   $("#btnApply").addEventListener("click", () => {
     if (state.currentIndex == null) return;
     applyFormToApp(state.currentIndex);
-    $("#previewBox").value = buildJSON();
+    updatePreviewDisplay();
     const app = state.data.apps[state.currentIndex];
     const label = app ? (app.name || app.id || "app") : "";
     setStatus("Applied form changes.", 3000);
@@ -5143,7 +5343,7 @@ function bind(){
   $("#btnCopyJson").addEventListener("click", () => {
     if (state.currentIndex != null) applyFormToApp(state.currentIndex);
     const t = buildJSON();
-    $("#previewBox").value = t;
+    updatePreviewDisplay(t);
     navigator.clipboard.writeText(t).then(() => setStatus("JSON copied.", 3000));
   });
   $("#btnSaveJson").addEventListener("click", saveLocal);
@@ -5379,7 +5579,7 @@ function bind(){
     state.currentIndex = state.data.apps.length - 1;
     renderApps({ skipReveal: false });
     populateForm(state.data.apps[state.currentIndex]);
-    $("#previewBox").value = buildJSON();
+    updatePreviewDisplay();
     switchTab("tab-editor");
     setDirty(true);
     setStatus("Wizard created a new application.", 3000);
@@ -5781,6 +5981,7 @@ async function bootstrapUpdates() {
 function initBlank(){
   state.data = { schemaVersion: 2, generated: isoNow(), contact: "", apps: [] };
   state.currentIndex = null; renderApps(); clearForm(); resetWizardForm();
+  updatePreviewDisplay();
 }
 
 // Version checking functionality

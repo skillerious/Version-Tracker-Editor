@@ -303,15 +303,54 @@
           <strong>Manifest preview</strong>
           <p>Generate JSON on demand, copy or download it for review, and validate URLs before pushing upstream.</p>
         </div>
-        <div class="card">
+        <div class="card preview-dashboard">
           <div class="card-title">Preview</div>
           <p class="card-subtitle">The preview reflects unsaved edits from the editor tab. Use these actions to export or validate the manifest snapshot.</p>
-          <div class="row gap">
-            <button id="btnCopyJson">Copy JSON</button>
-            <button id="btnSaveJson">Save JSON...</button>
-            <button id="btnValidate">Validate URLs</button>
+          <div class="preview-actions">
+            <div class="preview-action-buttons">
+              <button id="btnCopyJson">Copy JSON</button>
+              <button id="btnSaveJson">Save JSON...</button>
+              <button id="btnValidate">Validate URLs</button>
+            </div>
+            <div id="previewDatasetStatus" class="preview-status-pill" role="status">Snapshot synced</div>
           </div>
-          <textarea id="previewBox" class="codeblock" rows="24" placeholder="JSON preview will appear here..." readonly></textarea>
+          <div class="preview-grid">
+            <section class="preview-insights" aria-label="Dataset insights">
+              <article class="preview-stat">
+                <span class="preview-stat-label">Apps tracked</span>
+                <strong id="previewStatApps" class="preview-stat-value">0</strong>
+                <span id="previewStatAppsMeta" class="preview-stat-meta muted">Add an app to start tracking.</span>
+              </article>
+              <article class="preview-stat">
+                <span class="preview-stat-label">Next release</span>
+                <strong id="previewStatNext" class="preview-stat-value">--</strong>
+                <span id="previewStatNextMeta" class="preview-stat-meta muted">Add target dates to surface the schedule.</span>
+              </article>
+              <article class="preview-stat">
+                <span class="preview-stat-label">Track health</span>
+                <strong id="previewStatHealth" class="preview-stat-value">--</strong>
+                <span id="previewStatHealthMeta" class="preview-stat-meta muted">Health insights appear after you add data.</span>
+              </article>
+              <article class="preview-stat">
+                <span class="preview-stat-label">History depth</span>
+                <strong id="previewStatHistory" class="preview-stat-value">--</strong>
+                <span id="previewStatHistoryMeta" class="preview-stat-meta muted">History coverage updates automatically.</span>
+              </article>
+            </section>
+            <section class="preview-json-panel" aria-label="Manifest JSON preview">
+              <header class="preview-json-header">
+                <div class="preview-json-pills">
+                  <span id="previewMetaSize" class="preview-json-pill">0 B</span>
+                  <span id="previewMetaLines" class="preview-json-pill">0 lines</span>
+                </div>
+                <div id="previewMetaGenerated" class="preview-generated muted">Generated timestamp pending</div>
+              </header>
+              <div class="preview-json-body">
+                <pre id="previewCode" class="json-preview" aria-live="polite" data-empty="true"><span class="json-placeholder">JSON preview will appear here once data is added.</span></pre>
+                <textarea id="previewBox" class="sr-only" aria-hidden="true" tabindex="-1" readonly></textarea>
+              </div>
+            </section>
+          </div>
         </div>
       </div>
 
