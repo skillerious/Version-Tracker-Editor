@@ -364,16 +364,19 @@
               <span class="summary-label">Upcoming</span>
               <strong id="calendarUpcomingCount" class="summary-value">0</strong>
               <span class="summary-hint">Next 14 days</span>
+              <span id="calendarUpcomingHidden" class="summary-hidden" hidden></span>
             </div>
             <div class="calendar-summary-item summary-recent">
               <span class="summary-label">Recent</span>
               <strong id="calendarRecentCount" class="summary-value">0</strong>
               <span class="summary-hint">Past 14 days</span>
+              <span id="calendarRecentHidden" class="summary-hidden" hidden></span>
             </div>
             <div class="calendar-summary-item summary-stale">
               <span class="summary-label">Stale</span>
               <strong id="calendarStaleCount" class="summary-value">0</strong>
               <span class="summary-hint">Older than 60 days</span>
+              <span id="calendarStaleHidden" class="summary-hidden" hidden></span>
             </div>
             <div class="calendar-summary-item summary-undated">
               <span class="summary-label">Undated</span>
@@ -389,6 +392,13 @@
                 <button type="button" data-view="recent">Recent</button>
                 <button type="button" data-view="stale">Stale</button>
               </div>
+              <div id="calendarWindowToggle" class="calendar-window-toggle" role="group" aria-label="Date range">
+                <button type="button" data-window="all" class="active">All dates</button>
+                <button type="button" data-window="next7">Next 7 d</button>
+                <button type="button" data-window="next30">Next 30 d</button>
+                <button type="button" data-window="next90">Next 90 d</button>
+                <button type="button" data-window="last30">Last 30 d</button>
+              </div>
               <div class="calendar-filter-group" role="group" aria-label="Release types">
                 <label class="calendar-filter"><input id="calendarFilterStable" type="checkbox" data-filter="stable" checked>Stable</label>
                 <label class="calendar-filter"><input id="calendarFilterBeta" type="checkbox" data-filter="beta" checked>Beta</label>
@@ -401,6 +411,7 @@
                 <span class="sr-only">Search releases</span>
                 <input id="calendarSearch" type="search" placeholder="Search apps, versions, notes..." autocomplete="off">
               </label>
+              <button id="calendarCopyVisible" type="button" class="ghost subtle calendar-copy-btn" title="Copy visible releases">Copy list</button>
               <button id="calendarResetFilters" type="button" class="ghost subtle calendar-reset-btn">Reset</button>
             </div>
           </div>
@@ -431,6 +442,18 @@
               <span id="calendarUndatedSummaryMeta" class="highlight-meta muted">Add target dates to track progress.</span>
             </div>
           </div>
+        </div>
+        <div class="card calendar-watchlist-card">
+          <div class="calendar-watchlist-header">
+            <div>
+              <h3>Watchlist</h3>
+              <p class="muted">Key risks detected across all apps.</p>
+            </div>
+            <button id="calendarFocusIssues" type="button" class="ghost subtle calendar-focus-btn" aria-pressed="false">Focus flagged</button>
+          </div>
+          <ul id="calendarWatchlist" class="calendar-watchlist-list">
+            <li class="calendar-watch-empty muted">No risks detected.</li>
+          </ul>
         </div>
         <div class="calendar-section-header">
           <h3>Timeline</h3>
@@ -932,104 +955,63 @@
 
   <!-- Application update dialog -->
   <dialog id="updateDialog" class="dialog-card update-dialog" aria-labelledby="updateDialogTitle" aria-describedby="updateDialogLead">
-    <header id="updateDialogHeader" class="update-header" data-state="available">
-      <div class="update-header-visual" aria-hidden="true">
-        <span class="update-visual update-visual-ring"></span>
-        <span class="update-visual update-visual-orb"></span>
-        <span class="update-visual update-visual-grid"></span>
-      </div>
-      <div class="update-header-icon" aria-hidden="true">
-        <svg class="update-icon update-icon-available" viewBox="0 0 48 48" role="presentation" focusable="false">
-          <circle cx="24" cy="24" r="16" stroke="currentColor" stroke-width="2" fill="none" opacity=".35"></circle>
-          <path d="M24 12v16" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"></path>
-          <path d="M17.5 24.5 24 31l6.5-6.5" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"></path>
-          <path d="M17 35h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" opacity=".75"></path>
-        </svg>
-        <svg class="update-icon update-icon-current" viewBox="0 0 48 48" role="presentation" focusable="false">
-          <circle cx="24" cy="24" r="16" stroke="currentColor" stroke-width="2.4" fill="none" opacity=".35"></circle>
-          <path d="M16.5 25.5 21.5 30l10-11" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
-        </svg>
-        <svg class="update-icon update-icon-error" viewBox="0 0 48 48" role="presentation" focusable="false">
-          <circle cx="24" cy="24" r="16" stroke="currentColor" stroke-width="2.6" fill="none" opacity=".35"></circle>
-          <path d="M24 17v11" stroke="currentColor" stroke-width="3" stroke-linecap="round"></path>
-          <circle cx="24" cy="32" r="1.6" fill="currentColor"></circle>
-        </svg>
-        <div class="update-icon update-icon-checking">
-          <span class="update-icon-orbit"></span>
-          <span class="update-icon-dot"></span>
+    <div class="update-container">
+      <header id="updateDialogHeader" class="update-hero" data-state="available">
+        <div class="update-hero-icon" aria-hidden="true">
+          <svg class="update-logo" viewBox="0 0 48 48" focusable="false">
+            <defs>
+              <linearGradient id="updateGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#5ce1ff"/>
+                <stop offset="100%" stop-color="#2dd4bf"/>
+              </linearGradient>
+            </defs>
+            <circle cx="24" cy="24" r="20" fill="rgba(92,225,255,.12)" stroke="url(#updateGrad)" stroke-width="2"></circle>
+            <path d="M17 23.5 22.2 29l8.8-10.5" fill="none" stroke="url(#updateGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
         </div>
-      </div>
-      <div class="update-header-copy">
-        <span class="update-status-chip" data-state="available" id="updateDialogStatus">Update available</span>
-        <h3 id="updateDialogTitle">A fresh build is ready</h3>
-        <p id="updateDialogLead">Download the latest Version Tracker release to get new features and fixes.</p>
-      </div>
-    </header>
-    <div class="update-progress" id="updateProgress" role="status" aria-live="polite">
-      <div class="update-progress-track" aria-hidden="true">
-        <div class="update-progress-bar"></div>
-      </div>
-      <span class="update-progress-label" id="updateProgressLabel">Checking for updates...</span>
-    </div>
-    <div class="update-body">
-      <div class="update-main">
-        <section class="update-section update-section-overview">
+        <div class="update-hero-copy">
+          <div class="update-hero-title-row">
+            <h3 id="updateDialogTitle">A fresh build is ready</h3>
+            <span class="update-status-chip" data-state="available" id="updateDialogStatus">Update available</span>
+          </div>
+          <p id="updateDialogLead">Download the latest Version Tracker release to get new features and fixes.</p>
+        </div>
+      </header>
+      <section class="update-card update-card-overview">
+        <header class="update-card-head">
           <h4>Version overview</h4>
-          <div class="update-grid">
-            <div class="update-tile">
-              <span class="update-tile-label">Current version</span>
-              <strong id="updateCurrentVersion">v1.0.0</strong>
-              <span class="update-tile-meta" id="updateCurrentMeta">Installed locally</span>
-            </div>
-            <div class="update-tile is-accent">
-              <span class="update-tile-label">Available version</span>
-              <strong id="updateAvailableVersion">v1.2.0</strong>
-              <span class="update-tile-meta" id="updateAvailableMeta">Released 3 days ago</span>
-            </div>
+          <span class="update-card-meta">Your install vs latest build</span>
+        </header>
+        <div class="update-grid">
+          <div class="update-tile">
+            <span class="update-tile-label">Current version</span>
+            <strong id="updateCurrentVersion">v1.0.0</strong>
+            <span class="update-tile-meta" id="updateCurrentMeta">Installed locally</span>
           </div>
-        </section>
-        <section class="update-section update-section-notes">
-          <div class="update-section-head">
-            <h4>Release highlights</h4>
-            <span class="update-notes-meta" id="updateNotesMeta">Stay informed before you install.</span>
+          <div class="update-tile is-accent">
+            <span class="update-tile-label">Available version</span>
+            <strong id="updateAvailableVersion">v1.2.0</strong>
+            <span class="update-tile-meta" id="updateAvailableMeta">Released 3 days ago</span>
           </div>
-          <div class="update-notes" id="updateReleaseNotes" aria-live="polite">
-            <p class="update-notes-intro">We'll pull in release notes once an update check runs.</p>
-          </div>
-        </section>
-      </div>
-      <aside class="update-side">
-        <section class="update-section update-section-checklist">
-          <h4>Before you update</h4>
-          <ol class="update-checklist">
-            <li>
-              <span class="update-check-icon">1</span>
-              <div>
-                <strong>Review highlights</strong>
-                <p>Skim the release notes on the left for changes that affect your workflow.</p>
-              </div>
-            </li>
-            <li>
-              <span class="update-check-icon">2</span>
-              <div>
-                <strong>Secure your work</strong>
-                <p>Commit pending edits or take a quick backup before installing.</p>
-              </div>
-            </li>
-            <li>
-              <span class="update-check-icon">3</span>
-              <div>
-                <strong>Plan the install</strong>
-                <p>Keep Version Tracker closed during the download to ensure a smooth upgrade.</p>
-              </div>
-            </li>
-          </ol>
-          <div class="update-callout">
-            <span class="update-callout-label">Latest release</span>
-            <span class="update-callout-value" id="updateChecklistMeta">Ready when you are.</span>
-          </div>
-        </section>
-      </aside>
+        </div>
+      </section>
+      <section class="update-card update-card-notes">
+        <header class="update-card-head">
+          <h4>Release highlights</h4>
+          <span class="update-card-meta" id="updateNotesMeta">Stay informed before you install.</span>
+        </header>
+        <div class="update-notes" id="updateReleaseNotes" aria-live="polite">
+          <p class="update-notes-intro">We'll pull in release notes once an update check runs.</p>
+        </div>
+      </section>
+      <section class="update-card update-card-progress" id="updateProgress" role="status" aria-live="polite" hidden>
+        <div class="update-progress-track" aria-hidden="true">
+          <div class="update-progress-bar"></div>
+        </div>
+        <div class="update-progress-meta">
+          <span class="update-progress-label" id="updateProgressLabel">Checking for updates...</span>
+        </div>
+      </section>
     </div>
     <footer class="update-footer">
       <div class="update-footer-left">

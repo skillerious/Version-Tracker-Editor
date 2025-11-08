@@ -97,7 +97,10 @@ const state = {
     filters: { stable: true, beta: true, history: false },
     view: "all",
     includeUndated: true,
-    search: ""
+    search: "",
+    window: "all",
+    focusIssues: false,
+    lastVisibleEntries: []
   }
 };
 let shaPopoverOpen = false;
@@ -219,7 +222,9 @@ const UPDATE_DEFAULT_APP = "versiontrackereditor";
 const VERSION_CONFIG_PATH = "version.json";
 const DEFAULT_UPDATE_CHECK_INTERVAL = 3600000;
 const UPDATE_FEED_JSON_URL = `${UPDATE_FEED_BASE_URL}${UPDATE_FEED_PATH}?app=`;
+const UPDATE_PROGRESS_FADE_MS = 280;
 let updateProgressHideTimer = null;
+let updateProgressVisibilityTimer = null;
 const updateState = {
   status: "pending",
   checking: false,
@@ -294,6 +299,8 @@ function setUpdateStatus(status = "pending", overrides = {}) {
     btn.title = tooltip;
     btn.setAttribute("aria-label", tooltip);
   }
+  const dialogRoot = $("#updateDialog");
+  if (dialogRoot) dialogRoot.dataset.state = normalized;
   const header = $("#updateDialogHeader");
   if (header) header.dataset.state = normalized;
   const chip = $("#updateDialogStatus");
@@ -323,6 +330,38 @@ function openUpdateDialog(remoteRelease){
       console.error("Update dialog check failed:", err);
     });
   }
+}
+
+function showUpdateProgressCard(el){
+  if (!el) return;
+  if (updateProgressVisibilityTimer){
+    clearTimeout(updateProgressVisibilityTimer);
+    updateProgressVisibilityTimer = null;
+  }
+  const addVisible = () => el.classList.add("is-visible");
+  if (el.hidden){
+    el.hidden = false;
+    void el.offsetWidth;
+    requestAnimationFrame(addVisible);
+  } else {
+    addVisible();
+  }
+}
+
+function hideUpdateProgressCard(el){
+  if (!el) return;
+  if (!el.classList.contains("is-visible")){
+    el.hidden = true;
+    return;
+  }
+  el.classList.remove("is-visible");
+  if (updateProgressVisibilityTimer){
+    clearTimeout(updateProgressVisibilityTimer);
+  }
+  updateProgressVisibilityTimer = window.setTimeout(() => {
+    el.hidden = true;
+    updateProgressVisibilityTimer = null;
+  }, UPDATE_PROGRESS_FADE_MS);
 }
 function closeUpdateDialog(){
   const dlg = $("#updateDialog");
@@ -567,8 +606,6 @@ function refreshUpdateDetails(){
   }
   const availableMetaEl = $("#updateAvailableMeta");
   if (availableMetaEl) availableMetaEl.textContent = availableMetaText;
-  const checklistMetaEl = $("#updateChecklistMeta");
-  if (checklistMetaEl) checklistMetaEl.textContent = availableMetaText || "Ready when you are.";
   const notesMetaEl = $("#updateNotesMeta");
   if (notesMetaEl) {
     let notesMeta = "Stay informed before you install.";
@@ -623,18 +660,18 @@ function refreshUpdateDetails(){
     const labelEl = $("#updateProgressLabel");
     const bar = progressWrap.querySelector(".update-progress-bar");
     const active = updateState.checking;
-    const message = updateState.progressMessage || (active ? "Checking for updates..." : "");
-    const shouldShow = active || Boolean(message);
-    progressWrap.hidden = false;
-    progressWrap.classList.toggle("is-active", active);
-    progressWrap.classList.toggle("is-visible", shouldShow);
+    const progressMessage = updateState.progressMessage || "";
+    const message = progressMessage || (active ? "Checking for updates..." : "");
+    const shouldShow = active || Boolean(progressMessage);
     progressWrap.dataset.state = active ? "checking" : (updateState.status || "pending");
     progressWrap.setAttribute("aria-hidden", shouldShow ? "false" : "true");
-    if (labelEl) labelEl.textContent = message;
+    if (shouldShow) showUpdateProgressCard(progressWrap);
+    else hideUpdateProgressCard(progressWrap);
+    if (labelEl) labelEl.textContent = shouldShow ? message : "";
     if (bar) {
-      bar.classList.toggle("is-animated", active);
-      bar.classList.toggle("is-complete", !active && message && updateState.status !== "error");
-      bar.classList.toggle("is-error", !active && message && updateState.status === "error");
+      if (active) bar.style.width = "55%";
+      else if (progressMessage) bar.style.width = "100%";
+      else bar.style.width = "0%";
     }
   }
   renderUpdateNotes();
@@ -861,6 +898,13 @@ const CALENDAR_STATUS_TEXT = {
   past: "Past",
   undated: "Undated"
 };
+const CALENDAR_WINDOW_RULES = Object.freeze({
+  all: () => true,
+  next7: (entry) => Number.isFinite(entry.diff) && entry.diff >= 0 && entry.diff <= 7,
+  next30: (entry) => Number.isFinite(entry.diff) && entry.diff >= 0 && entry.diff <= 30,
+  next90: (entry) => Number.isFinite(entry.diff) && entry.diff >= 0 && entry.diff <= 90,
+  last30: (entry) => Number.isFinite(entry.diff) && entry.diff <= 0 && entry.diff >= -30
+});
 function parseIsoDateStrict(value){
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
   const [y, m, d] = value.split("-").map(Number);
@@ -2419,14 +2463,113 @@ function computeCalendarStats(list){
   });
   return stats;
 }
+function pluralizeWord(count, noun){
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+function formatListPreview(items, max = 2){
+  const safe = (items || []).map((item) => (item || "").trim()).filter(Boolean);
+  if (!safe.length) return "";
+  const preview = safe.slice(0, max);
+  const remainder = safe.length - preview.length;
+  if (remainder > 0) return `${preview.join(", ")} +${remainder} more`;
+  return preview.join(", ");
+}
+function buildCalendarDiagnostics(entries, apps = [], stats = null){
+  const diagnostics = [];
+  const counts = stats?.counts || {};
+  const staleCount = counts.stale || 0;
+  const undatedCount = counts.undated || 0;
+  if (staleCount > 0) {
+    diagnostics.push({
+      id: "stale",
+      severity: "high",
+      title: `${pluralizeWord(staleCount, "track")} stale`,
+      meta: "Ship an update or reset expectations to unblock teams."
+    });
+  }
+  if (undatedCount > 0) {
+    diagnostics.push({
+      id: "undated",
+      severity: "medium",
+      title: `${pluralizeWord(undatedCount, "track")} missing a target date`,
+      meta: "Add target dates so status can be forecast accurately."
+    });
+  }
+  const upcomingAppKeys = new Set();
+  entries.forEach((entry) => {
+    const key = entry.appId || entry.appName || "";
+    if (!key) return;
+    if ((entry.type === "stable" || entry.type === "beta") && (entry.status === "upcoming" || entry.status === "upcoming-soon")) {
+      upcomingAppKeys.add(key);
+    }
+  });
+  const missingUpcoming = (apps || []).filter((app) => {
+    const key = app?.id || app?.name || "";
+    if (!key) return false;
+    return !upcomingAppKeys.has(key);
+  });
+  if (missingUpcoming.length > 0) {
+    diagnostics.push({
+      id: "missing-upcoming",
+      severity: "medium",
+      title: `${pluralizeWord(missingUpcoming.length, "app")} lack a scheduled release`,
+      meta: formatListPreview(missingUpcoming.map((app) => app.name || app.id).filter(Boolean), 3) || "Plan the next release to keep cadence."
+    });
+  }
+  const rushEntries = entries.filter((entry) => entry.status === "upcoming-soon" && Number.isFinite(entry.diff) && entry.diff <= 3);
+  if (rushEntries.length > 0) {
+    diagnostics.push({
+      id: "rush",
+      severity: "medium",
+      title: `${pluralizeWord(rushEntries.length, "release")} in the next 3 days`,
+      meta: formatListPreview(rushEntries.map((entry) => `${entry.appName} ${entry.trackLabel}`), 3) || "Prioritise QA & comms to hit the dates."
+    });
+  }
+  return diagnostics;
+}
+function renderCalendarWatchlist(diagnostics){
+  const list = $("#calendarWatchlist");
+  if (!list) return;
+  list.replaceChildren();
+  if (!diagnostics.length) {
+    const empty = document.createElement("li");
+    empty.className = "calendar-watch-empty muted";
+    empty.textContent = "No risks detected.";
+    list.append(empty);
+    return;
+  }
+  diagnostics.forEach((issue) => {
+    const li = document.createElement("li");
+    li.classList.add(`severity-${issue.severity || "low"}`);
+    const title = document.createElement("strong");
+    title.textContent = issue.title;
+    li.append(title);
+    if (issue.meta) {
+      const meta = document.createElement("span");
+      meta.textContent = issue.meta;
+      li.append(meta);
+    }
+    list.append(li);
+  });
+}
 function renderCalendarDivider(label, options = {}){
   const { variant = "" } = options;
-  const el = document.createElement("div");
-  el.className = "calendar-timeline-month";
-  if (variant) el.classList.add(`is-${variant}`);
-  el.textContent = label;
-  el.setAttribute("role", "presentation");
-  return el;
+  const row = document.createElement("div");
+  row.className = "calendar-timeline-row calendar-timeline-month";
+  if (variant) row.classList.add(`is-${variant}`);
+  row.setAttribute("role", "presentation");
+
+  const axis = document.createElement("span");
+  axis.className = "calendar-axis-node axis-divider";
+  axis.setAttribute("aria-hidden", "true");
+  row.append(axis);
+
+  const labelEl = document.createElement("span");
+  labelEl.className = "calendar-month-label";
+  labelEl.textContent = label;
+  row.append(labelEl);
+
+  return row;
 }
 function bindCalendarLink(anchor, href){
   if (!anchor || !href) return;
@@ -2440,9 +2583,18 @@ function bindCalendarLink(anchor, href){
   });
 }
 function renderCalendarEntry(entry){
+  const row = document.createElement("div");
+  row.className = `calendar-timeline-row status-${entry.status}`;
+  row.dataset.key = entry.key;
+  row.setAttribute("role", "listitem");
+
+  const axis = document.createElement("span");
+  axis.className = "calendar-axis-node axis-entry";
+  axis.setAttribute("aria-hidden", "true");
+  row.append(axis);
+
   const item = document.createElement("article");
   item.className = `calendar-entry status-${entry.status} track-${entry.type}`;
-  item.setAttribute("role", "listitem");
   item.dataset.key = entry.key;
 
   const dateCol = document.createElement("div");
@@ -2531,7 +2683,8 @@ function renderCalendarEntry(entry){
   }
 
   item.append(body);
-  return item;
+  row.append(item);
+  return row;
 }
 function renderReleaseCalendar(){
   const timeline = $("#calendarTimeline");
@@ -2543,10 +2696,16 @@ function renderReleaseCalendar(){
   if (typeof state.calendar.view !== "string") state.calendar.view = "all";
   if (typeof state.calendar.includeUndated !== "boolean") state.calendar.includeUndated = true;
   if (typeof state.calendar.search !== "string") state.calendar.search = "";
+  if (typeof state.calendar.window !== "string") state.calendar.window = "all";
+  if (typeof state.calendar.focusIssues !== "boolean") state.calendar.focusIssues = false;
+  if (!Array.isArray(state.calendar.lastVisibleEntries)) state.calendar.lastVisibleEntries = [];
 
   const upcomingCountEl = $("#calendarUpcomingCount");
   const recentCountEl = $("#calendarRecentCount");
   const staleCountEl = $("#calendarStaleCount");
+  const upcomingHiddenEl = $("#calendarUpcomingHidden");
+  const recentHiddenEl = $("#calendarRecentHidden");
+  const staleHiddenEl = $("#calendarStaleHidden");
   const undatedCountEl = $("#calendarUndatedCount");
   const undatedSummaryEl = $("#calendarUndatedSummary");
   const undatedSummaryMetaEl = $("#calendarUndatedSummaryMeta");
@@ -2558,6 +2717,10 @@ function renderReleaseCalendar(){
   const staleMetaEl = $("#calendarOldestStaleMeta");
   const searchInput = $("#calendarSearch");
   const includeUndatedCheckbox = $("#calendarIncludeUndated");
+  const windowToggle = $("#calendarWindowToggle");
+  const focusBtn = $("#calendarFocusIssues");
+  const copyBtn = $("#calendarCopyVisible");
+  if (copyBtn) copyBtn.disabled = true;
 
   if (searchInput && searchInput.value !== (state.calendar.search || "")) {
     searchInput.value = state.calendar.search || "";
@@ -2570,11 +2733,18 @@ function renderReleaseCalendar(){
   const view = state.calendar.view || "all";
   const includeUndated = state.calendar.includeUndated !== false;
   const searchTerm = (state.calendar.search || "").trim().toLowerCase();
+  const windowMode = state.calendar.window || "all";
+  let focusIssues = state.calendar.focusIssues === true;
 
   const viewToggle = $("#calendarViewToggle");
   if (viewToggle) {
     viewToggle.querySelectorAll("button").forEach((btn) => {
       btn.classList.toggle("active", (btn.dataset.view || "all") === view);
+    });
+  }
+  if (windowToggle) {
+    windowToggle.querySelectorAll("button").forEach((btn) => {
+      btn.classList.toggle("active", (btn.dataset.window || "all") === windowMode);
     });
   }
   [
@@ -2609,21 +2779,49 @@ function renderReleaseCalendar(){
     if (!matchesSearchTerm(entry)) return false;
     return true;
   });
-  const visibleEntries = view === "all"
-    ? scopedEntries
-    : scopedEntries.filter((entry) => {
-        if (view === "upcoming") return entry.status === "upcoming" || entry.status === "upcoming-soon";
-        if (view === "recent") return entry.status === "recent";
-        if (view === "stale") return entry.status === "stale";
-        return true;
-      });
-
   const globalStats = computeCalendarStats(entries);
   const scopedStats = computeCalendarStats(scopedEntries);
+  const diagnostics = buildCalendarDiagnostics(entries, state.data.apps || [], globalStats);
+  if (!diagnostics.length && focusIssues) {
+    focusIssues = false;
+    state.calendar.focusIssues = false;
+  }
+  const matchesView = (entry) => {
+    if (view === "upcoming") return entry.status === "upcoming" || entry.status === "upcoming-soon";
+    if (view === "recent") return entry.status === "recent";
+    if (view === "stale") return entry.status === "stale";
+    return true;
+  };
+  const windowPredicate = CALENDAR_WINDOW_RULES[windowMode] || CALENDAR_WINDOW_RULES.all;
+  const matchesWindow = (entry) => {
+    if (windowMode === "all") return true;
+    if (!entry.date) return false;
+    return windowPredicate(entry);
+  };
+  const matchesFocus = (entry) => {
+    if (!focusIssues) return true;
+    if (entry.status === "stale" || entry.status === "undated") return true;
+    if (entry.status === "upcoming-soon" && Number.isFinite(entry.diff) && entry.diff <= 3) return true;
+    return false;
+  };
+  const visibleEntries = scopedEntries.filter((entry) => matchesView(entry) && matchesWindow(entry) && matchesFocus(entry));
+  const updateHiddenSummary = (el, hidden) => {
+    if (!el) return;
+    if (hidden > 0) {
+      el.hidden = false;
+      el.textContent = `${hidden} hidden by filters`;
+    } else {
+      el.hidden = true;
+      el.textContent = "";
+    }
+  };
 
-  if (upcomingCountEl) upcomingCountEl.textContent = String(scopedStats.counts.upcoming);
-  if (recentCountEl) recentCountEl.textContent = String(scopedStats.counts.recent);
-  if (staleCountEl) staleCountEl.textContent = String(scopedStats.counts.stale);
+  if (upcomingCountEl) upcomingCountEl.textContent = String(globalStats.counts.upcoming);
+  if (recentCountEl) recentCountEl.textContent = String(globalStats.counts.recent);
+  if (staleCountEl) staleCountEl.textContent = String(globalStats.counts.stale);
+  updateHiddenSummary(upcomingHiddenEl, Math.max(0, globalStats.counts.upcoming - scopedStats.counts.upcoming));
+  updateHiddenSummary(recentHiddenEl, Math.max(0, globalStats.counts.recent - scopedStats.counts.recent));
+  updateHiddenSummary(staleHiddenEl, Math.max(0, globalStats.counts.stale - scopedStats.counts.stale));
 
   const totalUndated = globalStats.counts.undated;
   const visibleUndated = scopedStats.counts.undated;
@@ -2668,14 +2866,25 @@ function renderReleaseCalendar(){
   updateHighlight(nextValueEl, nextMetaEl, scopedStats.highlights.nextUpcoming, upcomingEmptyMessage);
   updateHighlight(recentValueEl, recentMetaEl, scopedStats.highlights.latestRecent, recentEmptyMessage);
   updateHighlight(staleValueEl, staleMetaEl, scopedStats.highlights.oldestStale, staleEmptyMessage);
+  renderCalendarWatchlist(diagnostics);
+  if (focusBtn) {
+    focusBtn.disabled = diagnostics.length === 0;
+    focusBtn.classList.toggle("active", focusIssues);
+    focusBtn.setAttribute("aria-pressed", focusIssues ? "true" : "false");
+    focusBtn.textContent = focusIssues ? "Show all" : "Focus flagged";
+  }
 
   const sorted = sortCalendarEntries(visibleEntries);
   timeline.replaceChildren();
+  state.calendar.lastVisibleEntries = [];
+  if (copyBtn) copyBtn.disabled = true;
   if (!sorted.length) {
     empty.hidden = false;
     return;
   }
   empty.hidden = true;
+  state.calendar.lastVisibleEntries = sorted;
+  if (copyBtn) copyBtn.disabled = false;
   const fragment = document.createDocumentFragment();
   let lastMonthKey = "";
   let lastBucket = "";
@@ -2696,6 +2905,38 @@ function renderReleaseCalendar(){
     fragment.append(renderCalendarEntry(entry));
   });
   timeline.append(fragment);
+}
+
+async function copyCalendarVisibleEntries(){
+  const entries = (state.calendar && Array.isArray(state.calendar.lastVisibleEntries))
+    ? state.calendar.lastVisibleEntries
+    : [];
+  if (!entries.length) {
+    showToast("No releases to copy", { variant: "info", icon: TOAST_ICONS.clipboardError, meta: "Adjust filters or add dates." });
+    return;
+  }
+  if (!navigator.clipboard?.writeText) {
+    showToast("Clipboard unavailable", { variant: "error", icon: TOAST_ICONS.clipboardError, meta: "Clipboard API blocked in this context." });
+    return;
+  }
+  const header = ["App", "Track", "Version", "Date", "Status", "Notes"];
+  const normalize = (value) => (value ?? "").toString().replace(/\s+/g, " ").trim();
+  const rows = entries.map((entry) => [
+    normalize(entry.appName || ""),
+    normalize(entry.trackLabel || ""),
+    normalize(entry.version || ""),
+    normalize(entry.rawDate || "--"),
+    normalize(entry.statusLabel || ""),
+    normalize(entry.notesFull || "")
+  ].join("\t"));
+  const text = [header.join("\t"), ...rows].join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    const meta = `${entries.length} release${entries.length === 1 ? "" : "s"}`;
+    showToast("Timeline copied", { variant: "success", icon: TOAST_ICONS.clipboardSuccess, meta });
+  } catch (err) {
+    showToast("Clipboard error", { variant: "error", icon: TOAST_ICONS.clipboardError, meta: err?.message || String(err) });
+  }
 }
 
 function selectApp(idx){
@@ -5183,6 +5424,20 @@ function bind(){
       });
     });
   }
+  const calendarWindowToggle = $("#calendarWindowToggle");
+  if (calendarWindowToggle) {
+    calendarWindowToggle.querySelectorAll("button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const win = btn.dataset.window || "all";
+        if (state.calendar.window === win) return;
+        state.calendar.window = win;
+        calendarWindowToggle.querySelectorAll("button").forEach((other) => {
+          other.classList.toggle("active", other === btn);
+        });
+        renderReleaseCalendar();
+      });
+    });
+  }
   [
     ["calendarFilterStable", "stable"],
     ["calendarFilterBeta", "beta"],
@@ -5220,6 +5475,23 @@ function bind(){
       state.calendar.view = "all";
       state.calendar.includeUndated = true;
       state.calendar.search = "";
+      state.calendar.window = "all";
+      state.calendar.focusIssues = false;
+      state.calendar.lastVisibleEntries = [];
+      renderReleaseCalendar();
+    });
+  }
+  const calendarCopyBtn = $("#calendarCopyVisible");
+  if (calendarCopyBtn) {
+    calendarCopyBtn.addEventListener("click", () => {
+      copyCalendarVisibleEntries();
+    });
+  }
+  const calendarFocusBtn = $("#calendarFocusIssues");
+  if (calendarFocusBtn) {
+    calendarFocusBtn.addEventListener("click", () => {
+      if (calendarFocusBtn.disabled) return;
+      state.calendar.focusIssues = !state.calendar.focusIssues;
       renderReleaseCalendar();
     });
   }
