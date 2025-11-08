@@ -31,6 +31,8 @@
       "preload.cjs",
       "renderer.js",
       "index.html",
+      "splash.html",
+      "splash.css",
       "styles.css",
       "assets/**/*",
       "version.json"
