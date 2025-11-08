@@ -11,6 +11,14 @@ if (!("vt" in window)) {
   });
 }
 
+window.addEventListener("load", () => {
+  try {
+    window.vt?.app?.ready?.();
+  } catch (err) {
+    console.warn("Failed to notify main process that renderer is ready:", err);
+  }
+});
+
 // -------- Validators / utils
 const RX_SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
 const RX_SLUG   = /^[a-z0-9][a-z0-9\-]{1,}$/;

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Version Tracker — Loading</title>
+    <link rel="stylesheet" href="./splash.css" />
+  </head>
+  <body>
+    <div class="splash">
+      <div class="splash__ambient"></div>
+      <div class="splash__panel">
+        <div class="splash__logo">
+          <div class="logo__glow"></div>
+          <img src="./assets/logo.png" alt="Version Tracker logo" />
+        </div>
+        <div class="splash__headline">
+          <span>Version Tracker Editor</span>
+          <strong>Preparing your workspace</strong>
+        </div>
+        <p class="splash__subtitle">
+          Restoring context, warming caches and syncing with GitHub…
+        </p>
+        <div class="splash__status" data-status-region>
+          <div class="status__pulse"></div>
+          <span class="status__text" data-status-text>Loading interface</span>
+          <div class="status__bar">
+            <div class="status__fill"></div>
+            <div class="status__shine"></div>
+          </div>
+        </div>
+        <div class="splash__meta">
+          <span class="meta__item">Secure token storage</span>
+          <span class="meta__divider"></span>
+          <span class="meta__item">Manifest insights</span>
+          <span class="meta__divider"></span>
+          <span class="meta__item">GitHub powered</span>
+        </div>
+      </div>
+    </div>
+    <script>
+      (() => {
+        const statusText = document.querySelector("[data-status-text]");
+        const progressFill = document.querySelector(".status__fill");
+        const metaBadges = Array.from(document.querySelectorAll(".meta__item"));
+        const cues = [
+          { text: "Loading interface", progress: 0.32, badge: 0 },
+          { text: "Restoring workspace", progress: 0.56, badge: 1 },
+          { text: "Syncing with GitHub", progress: 0.82, badge: 2 }
+        ];
+        let index = 0;
+        const applyCue = () => {
+          const cue = cues[index % cues.length];
+          statusText.textContent = cue.text;
+          progressFill.style.transform = `scaleX(${cue.progress})`;
+          metaBadges.forEach((badge, badgeIndex) => {
+            badge.classList.toggle("active", badgeIndex === cue.badge);
+          });
+          index += 1;
+        };
+        applyCue();
+        setInterval(applyCue, 2400);
+      })();
+    </script>
+  </body>
+</html>

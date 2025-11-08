@@ -25,7 +25,8 @@ contextBridge.exposeInMainWorld("vt", {
     open: (url) => ipcRenderer.invoke("shell:openExternal", url)
   },
   app: {
-    info: () => ipcRenderer.invoke("app:info")
+    info: () => ipcRenderer.invoke("app:info"),
+    ready: () => ipcRenderer.send("app:renderer-ready")
   },
   setup: {
     status: () => ipcRenderer.invoke("setup:status"),

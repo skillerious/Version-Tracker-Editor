@@ -34,6 +34,22 @@ const TOKEN_STORE_KEY = "github_token";
 const LEGACY_MIGRATION_FLAG = "__legacy_token_migrated__";
 const LEGACY_SERVICE = "VersionTrackerEditor_GitHub";
 const LEGACY_ACCOUNT = "token";
+const MAIN_REVEAL_TIMEOUT_MS = 15000;
+const MIN_SPLASH_VISIBLE_MS = 4000;
+
+let mainWindow = null;
+let splashWindow = null;
+
+const splashLifecycle = {
+  minVisibleElapsed: false,
+  rendererReady: false,
+  mainReady: false,
+  revealCompleted: false,
+  timers: {
+    minVisible: null,
+    fallback: null
+  }
+};
 
 let keytarModulePromise = null;
 function loadKeytarModule() {
@@ -279,7 +295,143 @@ function getPreloadPath() {
   return path.join(__dirname, "preload.cjs"); // CommonJS preload
 }
 
+function resetSplashLifecycle() {
+  splashLifecycle.minVisibleElapsed = false;
+  splashLifecycle.rendererReady = false;
+  splashLifecycle.mainReady = false;
+  splashLifecycle.revealCompleted = false;
+  clearTimeout(splashLifecycle.timers.minVisible);
+  clearTimeout(splashLifecycle.timers.fallback);
+  splashLifecycle.timers.minVisible = null;
+  splashLifecycle.timers.fallback = null;
+}
+
+function startMinVisibleTimer() {
+  clearTimeout(splashLifecycle.timers.minVisible);
+  splashLifecycle.minVisibleElapsed = false;
+  splashLifecycle.timers.minVisible = setTimeout(() => {
+    splashLifecycle.minVisibleElapsed = true;
+    maybeRevealMainWindow({ reason: "min-visible-elapsed" });
+  }, MIN_SPLASH_VISIBLE_MS);
+}
+
+function startRevealFallbackTimer() {
+  clearTimeout(splashLifecycle.timers.fallback);
+  splashLifecycle.timers.fallback = setTimeout(() => {
+    maybeRevealMainWindow({ force: true, reason: "reveal-timeout" });
+  }, MAIN_REVEAL_TIMEOUT_MS);
+}
+
+function markRendererReady() {
+  if (splashLifecycle.rendererReady) return;
+  splashLifecycle.rendererReady = true;
+  maybeRevealMainWindow({ reason: "renderer-ready" });
+}
+
+function markMainReady() {
+  if (splashLifecycle.mainReady) return;
+  splashLifecycle.mainReady = true;
+  startRevealFallbackTimer();
+  maybeRevealMainWindow({ reason: "main-ready" });
+}
+
+function fadeInAndShowMainWindow(win, duration = 260) {
+  if (!win || win.isDestroyed()) return;
+  const wasVisible = win.isVisible();
+  if (!wasVisible) win.show();
+  win.setOpacity(0);
+  const start = Date.now();
+  const step = () => {
+    if (!win || win.isDestroyed()) return;
+    const progress = Math.min((Date.now() - start) / duration, 1);
+    win.setOpacity(progress);
+    if (progress < 1) {
+      setTimeout(step, 16);
+    } else {
+      win.setOpacity(1);
+      win.focus();
+    }
+  };
+  step();
+}
+
+function maybeRevealMainWindow({ force = false, reason = "unspecified" } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (splashLifecycle.revealCompleted) return;
+  const ready = splashLifecycle.rendererReady && splashLifecycle.mainReady && splashLifecycle.minVisibleElapsed;
+  if (!force && !ready) return;
+  splashLifecycle.revealCompleted = true;
+  clearTimeout(splashLifecycle.timers.minVisible);
+  clearTimeout(splashLifecycle.timers.fallback);
+  splashLifecycle.timers.minVisible = null;
+  splashLifecycle.timers.fallback = null;
+  closeSplashWindow();
+  try {
+    mainWindow.maximize();
+  } catch {
+    // ignore maximize failures
+  }
+  fadeInAndShowMainWindow(mainWindow);
+}
+
+function closeSplashWindow() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+  }
+  splashWindow = null;
+  clearTimeout(splashLifecycle.timers.minVisible);
+  splashLifecycle.timers.minVisible = null;
+}
+
+function createSplashWindow() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    return splashWindow;
+  }
+  splashWindow = new BrowserWindow({
+    width: 460,
+    height: 540,
+    useContentSize: true,
+    resizable: false,
+    movable: true,
+    minimizable: false,
+    maximizable: false,
+    frame: false,
+    show: false,
+    alwaysOnTop: true,
+    transparent: true,
+    backgroundColor: "#00000000",
+    skipTaskbar: true,
+    fullscreenable: false,
+    title: "Loading Version Tracker",
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true
+    }
+  });
+  splashWindow.loadFile("splash.html");
+  splashWindow.once("ready-to-show", () => {
+    if (!splashWindow?.isDestroyed()) {
+      splashWindow.show();
+      startMinVisibleTimer();
+    }
+  });
+  splashWindow.webContents.on("did-fail-load", () => {
+    maybeRevealMainWindow({ force: true, reason: "splash-did-fail-load" });
+  });
+  splashWindow.on("closed", () => {
+    splashWindow = null;
+  });
+  return splashWindow;
+}
+
 function createWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return mainWindow;
+  }
+
+  resetSplashLifecycle();
+  createSplashWindow();
+
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -287,7 +439,7 @@ function createWindow() {
     minHeight: 640,
     show: false,
     title: "Version Tracker",
-    backgroundColor: "#1e1e1e",
+    backgroundColor: "#05060a",
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     trafficLightPosition: { x: 12, y: 12 },
     webPreferences: {
@@ -298,6 +450,12 @@ function createWindow() {
       spellcheck: false
     }
   });
+  mainWindow = win;
+  try {
+    win.setOpacity(0);
+  } catch {
+    // opacity not supported on some window managers; ignore
+  }
 
   let closingApproved = false;
   const handleForceClose = (event) => {
@@ -323,15 +481,29 @@ function createWindow() {
   ipcMain.on("win:force-close", handleForceClose);
 
   win.on("closed", () => {
+    closeSplashWindow();
     ipcMain.removeListener("win:force-close", handleForceClose);
+    if (mainWindow === win) {
+      mainWindow = null;
+    }
+    closingApproved = false;
+    resetSplashLifecycle();
   });
 
   win.loadFile("index.html");
-  win.once("ready-to-show", () => {
-    win.maximize();
-    win.show();
+  win.webContents.once("did-finish-load", () => {
+    markMainReady();
   });
+  win.webContents.on("did-fail-load", () => {
+    maybeRevealMainWindow({ force: true, reason: "main-did-fail-load" });
+  });
+
+  return win;
 }
+
+ipcMain.on("app:renderer-ready", () => {
+  markRendererReady();
+});
 
 app.whenReady().then(() => {
   createWindow();
