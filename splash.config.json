@@ -1,0 +1,34 @@
+{
+  "envText": "Environment: Desktop • GitHub enabled",
+  "footerText": "Loading environment…",
+  "phase": "Loading",
+  "steps": [
+    {
+      "id": "ui",
+      "label": "Loading interface",
+      "subLabel": "Panels, theme, routes",
+      "statusText": "Loading interface",
+      "progress": 0.32,
+      "durationMs": 1500,
+      "pillIndex": 0
+    },
+    {
+      "id": "workspace",
+      "label": "Restoring workspace",
+      "subLabel": "Session, file context",
+      "statusText": "Restoring workspace",
+      "progress": 0.58,
+      "durationMs": 1600,
+      "pillIndex": 1
+    },
+    {
+      "id": "github",
+      "label": "Syncing with GitHub",
+      "subLabel": "Remote manifests",
+      "statusText": "Syncing with GitHub",
+      "progress": 0.82,
+      "durationMs": 1900,
+      "pillIndex": 2
+    }
+  ]
+}

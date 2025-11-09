@@ -47,7 +47,8 @@ const ErrorHandler = {
   showError(error, context = '') {
     const message = this.logError(error, context);
     showToast(message, { variant: "error", icon: TOAST_ICONS.actionFailed });
-    setStatus(message, 5000);
+    const meta = context ? `Context: ${context}` : "See console for details.";
+    setStatus({ message, variant: "error", duration: 6000, meta });
   },
 
   async handleAsync(promise, context = '') {
@@ -200,13 +201,280 @@ function escapeHtml(str){
     "'": "&#39;"
   })[ch]);
 }
-function setStatus(msg, ms=3000){
-  $("#sbText").textContent = msg;
-  if (ms > 0) {
-    const tag = Symbol("sb");
-    setStatus._tag = tag;
-    setTimeout(() => { if (setStatus._tag === tag) $("#sbText").textContent = "Ready."; }, ms);
+const PLATFORM_IS_MAC = typeof navigator !== "undefined"
+  && /Mac|iPhone|iPad/.test((navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || "").toString());
+const ACCELERATOR_LABEL = PLATFORM_IS_MAC ? "⌘" : "Ctrl";
+const OPTION_LABEL = PLATFORM_IS_MAC ? "⌥" : "Alt";
+const STATUS_VARIANTS = Object.freeze({
+  neutral:  { icon: "",   duration: 3200 },
+  info:     { icon: "i",  duration: 3600 },
+  success:  { icon: "V",  duration: 4200 },
+  warning:  { icon: "!",  duration: 5200 },
+  error:    { icon: "X",  duration: 6200 },
+  progress: { icon: "",   duration: 0, spinner: true }
+});
+const STATUS_SUCCESS_DEFAULT_ICON = STATUS_VARIANTS.success.icon;
+const STATUS_ICON_TEMPLATES = Object.freeze({
+  spinner: `<svg class="sb-glyph sb-glyph-spinner" viewBox="0 0 24 24" role="presentation" focusable="false" aria-hidden="true">
+    <circle class="track" cx="12" cy="12" r="8"></circle>
+    <circle class="orbit" cx="12" cy="12" r="8"></circle>
+  </svg>`,
+  tick: `<svg class="sb-glyph sb-glyph-tick" viewBox="0 0 24 24" role="presentation" focusable="false" aria-hidden="true">
+    <circle class="ring" cx="12" cy="12" r="8"></circle>
+    <polyline class="mark" points="7.2 12.4 10.4 15.4 16.4 8.6"></polyline>
+  </svg>`
+});
+const STATUS_HINTS = [
+  () => `${ACCELERATOR_LABEL}+S - Commit to GitHub`,
+  () => `F5 - Fetch latest manifest`,
+  () => `${ACCELERATOR_LABEL}+D - Duplicate selected app`,
+  () => `${ACCELERATOR_LABEL}+Shift+R - Refresh preview JSON`,
+  () => `${ACCELERATOR_LABEL}+Shift+L - Load app into wizard`,
+  () => `Shift+F10 - Open application menu`,
+  () => `${ACCELERATOR_LABEL}+B - Toggle beta track`
+];
+const STATUS_HINT_INTERVAL = 12000;
+const statusBarState = {
+  defaultMessage: "Ready.",
+  elements: null,
+  active: null,
+  timer: null,
+  pending: null,
+  hintTimer: null,
+  hintIndex: 0,
+  helpLockId: null,
+  defaultHelp: "",
+  initialized: false
+};
+function formatStatusHint(index){
+  if (!STATUS_HINTS.length) return "";
+  const entry = STATUS_HINTS[index % STATUS_HINTS.length];
+  if (typeof entry === "function") {
+    try {
+      return entry() || "";
+    } catch {
+      return "";
+    }
   }
+  return entry || "";
+}
+function shouldRenderStatusTick(payload){
+  return payload.variant === "success" &&
+    !payload.spinner &&
+    payload.icon === STATUS_SUCCESS_DEFAULT_ICON;
+}
+function renderStatusIconGlyph(target, payload, options = {}){
+  if (!target) return;
+  const isSpinner = !!payload.spinner;
+  const showTick = options.showTick ?? shouldRenderStatusTick(payload);
+  target.classList.toggle("is-spinner", isSpinner);
+  target.classList.toggle("is-tick", showTick);
+  if (isSpinner) {
+    target.innerHTML = STATUS_ICON_TEMPLATES.spinner;
+    return;
+  }
+  if (showTick) {
+    target.innerHTML = STATUS_ICON_TEMPLATES.tick;
+    return;
+  }
+  target.textContent = payload.icon || "";
+}
+function ensureStatusBarElements(){
+  if (statusBarState.elements) return true;
+  const text = $("#sbText");
+  if (!text) return false;
+  statusBarState.elements = {
+    bar: $("#statusbar"),
+    text,
+    meta: $("#sbMeta"),
+    icon: $("#sbStatusIcon"),
+    help: $("#sbHelp")
+  };
+  if (statusBarState.elements.bar && !statusBarState.elements.bar.dataset.variant) {
+    statusBarState.elements.bar.dataset.variant = "neutral";
+  }
+  statusBarState.defaultHelp = (statusBarState.elements.help?.textContent || "").trim() || formatStatusHint(0) || "F5: Fetch | Ctrl+S: Commit";
+  if (statusBarState.elements.help && !statusBarState.elements.help.textContent.trim()) {
+    statusBarState.elements.help.textContent = statusBarState.defaultHelp;
+  }
+  if (!statusBarState.initialized) {
+    statusBarState.initialized = true;
+    startStatusHintRotation();
+  }
+  if (statusBarState.pending) {
+    applyStatusPayload(statusBarState.pending);
+    statusBarState.pending = null;
+  }
+  return true;
+}
+function startStatusHintRotation(){
+  if (statusBarState.hintTimer) {
+    clearTimeout(statusBarState.hintTimer);
+    statusBarState.hintTimer = null;
+  }
+  const tick = () => {
+    if (!statusBarState.elements?.help || statusBarState.helpLockId) {
+      statusBarState.hintTimer = setTimeout(tick, STATUS_HINT_INTERVAL);
+      return;
+    }
+    statusBarState.hintIndex = (statusBarState.hintIndex + 1) % STATUS_HINTS.length;
+    const hint = formatStatusHint(statusBarState.hintIndex) || statusBarState.defaultHelp;
+    statusBarState.elements.help.textContent = hint;
+    statusBarState.hintTimer = setTimeout(tick, STATUS_HINT_INTERVAL);
+  };
+  statusBarState.hintTimer = setTimeout(tick, STATUS_HINT_INTERVAL);
+}
+function restoreStatusHint(){
+  if (!ensureStatusBarElements()) return;
+  if (statusBarState.helpLockId) return;
+  const hint = formatStatusHint(statusBarState.hintIndex) || statusBarState.defaultHelp;
+  if (statusBarState.elements?.help) statusBarState.elements.help.textContent = hint;
+}
+function applyStatusPayload(payload){
+  if (!ensureStatusBarElements()) {
+    statusBarState.pending = payload;
+    statusBarState.active = payload;
+    return;
+  }
+  const prevLock = statusBarState.helpLockId;
+  const { text, meta, icon, bar } = statusBarState.elements;
+  if (text) text.textContent = payload.message;
+  if (meta) {
+    if (payload.meta) {
+      meta.textContent = payload.meta;
+      meta.hidden = false;
+    } else {
+      meta.textContent = "";
+      meta.hidden = true;
+    }
+  }
+  if (icon) {
+    const showTick = shouldRenderStatusTick(payload);
+    const hasIcon = Boolean(payload.icon) || payload.spinner || showTick;
+    icon.hidden = !hasIcon;
+    if (hasIcon) {
+      renderStatusIconGlyph(icon, payload, { showTick });
+    } else {
+      icon.textContent = "";
+      icon.classList.remove("is-spinner", "is-tick");
+    }
+  }
+  if (bar) {
+    bar.dataset.variant = payload.variant || "neutral";
+  }
+  if (payload.help) {
+    if (statusBarState.elements?.help) statusBarState.elements.help.textContent = payload.help;
+    statusBarState.helpLockId = payload.id;
+  } else if (prevLock) {
+    statusBarState.helpLockId = null;
+    restoreStatusHint();
+  } else {
+    restoreStatusHint();
+  }
+  statusBarState.active = payload;
+}
+function scheduleStatusClear(payload){
+  if (statusBarState.timer) {
+    clearTimeout(statusBarState.timer);
+    statusBarState.timer = null;
+  }
+  if (payload.sticky) return;
+  statusBarState.timer = setTimeout(() => {
+    if (statusBarState.active && statusBarState.active.id === payload.id) {
+      StatusBar.reset();
+    }
+  }, payload.duration);
+}
+function finalizeStatusPayload(base){
+  const payload = { ...base };
+  const resolvedMessage = payload.message != null ? String(payload.message) : "";
+  payload.message = resolvedMessage.trim() || statusBarState.defaultMessage;
+  const variantKey = payload.variant && STATUS_VARIANTS[payload.variant] ? payload.variant : "neutral";
+  payload.variant = variantKey;
+  const variantMeta = STATUS_VARIANTS[variantKey];
+  if (payload.meta != null) payload.meta = String(payload.meta);
+  else payload.meta = "";
+  payload.icon = payload.icon != null ? String(payload.icon) : variantMeta.icon || "";
+  payload.spinner = payload.spinner != null ? !!payload.spinner : Boolean(variantMeta.spinner);
+  if (payload.duration == null) payload.duration = variantMeta.duration ?? 3200;
+  payload.duration = Math.max(0, Number.parseInt(payload.duration, 10) || 0);
+  if (payload.sticky == null) payload.sticky = payload.duration === 0;
+  payload.id = payload.id || Symbol("status");
+  payload.help = payload.help ? String(payload.help) : "";
+  return payload;
+}
+function normalizeStatusPayload(message, options){
+  let payload;
+  if (typeof message === "object" && message !== null && !Array.isArray(message)) {
+    payload = { ...message };
+  } else {
+    payload = { message };
+    if (typeof options === "number") payload.duration = options;
+    else if (options && typeof options === "object") Object.assign(payload, options);
+  }
+  return finalizeStatusPayload(payload);
+}
+function buildStatusHandle(payload){
+  return {
+    update(next, opts){
+      if (!StatusBar.isActive(payload.id)) return;
+      const patch = typeof next === "object" && next !== null && !Array.isArray(next)
+        ? { ...next }
+        : { message: next };
+      if (opts && typeof opts === "object") Object.assign(patch, opts);
+      StatusBar.update(payload.id, patch);
+    },
+    clear(){
+      StatusBar.clear(payload.id);
+    }
+  };
+}
+const StatusBar = {
+  show(message, options){
+    const payload = normalizeStatusPayload(message, options);
+    applyStatusPayload(payload);
+    scheduleStatusClear(payload);
+    return buildStatusHandle(payload);
+  },
+  update(id, patch){
+    if (!this.isActive(id)) return;
+    const base = { ...statusBarState.active };
+    if (typeof patch === "object" && patch !== null && !Array.isArray(patch)) {
+      Object.assign(base, patch);
+    } else if (patch != null) {
+      base.message = patch;
+    }
+    if (base.duration == null) base.duration = statusBarState.active.duration;
+    if (base.sticky == null) base.sticky = statusBarState.active.sticky;
+    base.id = id;
+    const normalized = finalizeStatusPayload(base);
+    normalized.id = id;
+    applyStatusPayload(normalized);
+    scheduleStatusClear(normalized);
+  },
+  clear(id){
+    if (!this.isActive(id)) return;
+    this.reset();
+  },
+  reset(){
+    const fallback = finalizeStatusPayload({
+      message: statusBarState.defaultMessage,
+      variant: "neutral",
+      duration: 0,
+      sticky: true
+    });
+    applyStatusPayload(fallback);
+    if (statusBarState.timer) {
+      clearTimeout(statusBarState.timer);
+      statusBarState.timer = null;
+    }
+  },
+  isActive(id){
+    return Boolean(statusBarState.active && statusBarState.active.id === id);
+  }
+};
+function setStatus(msg, options=3000){
+  return StatusBar.show(msg, options);
 }
 const UPDATE_STATUS_META = {
   pending: { tooltip: "Update status pending", chip: "Status pending" },
@@ -1337,6 +1605,41 @@ const appContextMenuState = {
   index: null,
   submenu: null
 };
+const APP_CONTEXT_SHORTCUTS = Object.freeze({
+  open: { tokens: ["Enter"] },
+  "open-wizard": {
+    tokens: ["ACCEL", "Shift", "L"],
+    matches: (event) => isAccel(event) && event.shiftKey && !event.altKey && isKey(event, "l")
+  },
+  duplicate: {
+    tokens: ["ACCEL", "D"],
+    matches: (event) => isAccel(event) && !event.shiftKey && !event.altKey && isKey(event, "d")
+  },
+  delete: {
+    tokens: ["Delete"],
+    matches: (event) => !hasAnyModifier(event) && (event.key === "Delete" || event.key === "Backspace")
+  },
+  "toggle-beta": {
+    tokens: ["ACCEL", "B"],
+    matches: (event) => isAccel(event) && !event.shiftKey && !event.altKey && isKey(event, "b")
+  },
+  "promote-beta": {
+    tokens: ["ACCEL", "Shift", "P"],
+    matches: (event) => isAccel(event) && event.shiftKey && !event.altKey && isKey(event, "p")
+  },
+  "clone-stable": {
+    tokens: ["ACCEL", "Shift", "K"],
+    matches: (event) => isAccel(event) && event.shiftKey && !event.altKey && isKey(event, "k")
+  },
+  "copy-json": {
+    tokens: ["ACCEL", "Shift", "J"],
+    matches: (event) => isAccel(event) && event.shiftKey && !event.altKey && isKey(event, "j")
+  },
+  "preview-app": {
+    tokens: ["ACCEL", "Shift", "R"],
+    matches: (event) => isAccel(event) && event.shiftKey && !event.altKey && isKey(event, "r")
+  }
+});
 function getAppWorkingCopy(index){
   if (index == null || index < 0 || index >= state.data.apps.length) return null;
   const source = state.data.apps[index] || {};
@@ -1361,6 +1664,128 @@ function getAppWorkingCopy(index){
   const historyRows = collectHistoryRows().map(({ row: _row, ...rest }) => rest);
   working.history = historyRows;
   return working;
+}
+const TRACK_COMPARE_KEYS = ["version", "code", "date", "url", "download", "notes"];
+function normalizeTrackCompareValue(value, key){
+  if (value == null) return "";
+  if (key === "code") {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? String(parsed) : String(value);
+  }
+  if (typeof value === "string") return value.trim();
+  return String(value);
+}
+function areTracksEquivalent(a = {}, b = {}){
+  return TRACK_COMPARE_KEYS.every((key) => normalizeTrackCompareValue(a[key], key) === normalizeTrackCompareValue(b[key], key));
+}
+function getAppListItemByIndex(index){
+  const list = $("#appsList");
+  if (!list) return null;
+  return list.querySelector(`li[data-index="${index}"]`);
+}
+function getAppContextMenuTarget(indexOverride){
+  const apps = state.data.apps || [];
+  let index = typeof indexOverride === "number" ? indexOverride : appContextMenuState.index;
+  if (index == null || index < 0 || index >= apps.length) index = state.currentIndex;
+  if (index == null || index < 0 || index >= apps.length) {
+    return {
+      index: null,
+      working: null,
+      stable: null,
+      beta: null,
+      historyList: [],
+      hasApp: false,
+      hasStable: false,
+      hasBeta: false,
+      betaEnabled: false,
+      hasHistory: false,
+      historyCount: 0,
+      stableUrl: "",
+      stableVersion: "",
+      formIsDirtyForTarget: false,
+      id: "",
+      name: ""
+    };
+  }
+  const working = getAppWorkingCopy(index);
+  const stable = working?.tracks?.stable || {};
+  const beta = working?.tracks?.beta || {};
+  const historyList = Array.isArray(working?.history) ? working.history : [];
+  const hasStable = hasTrackData(stable);
+  const hasBeta = hasTrackData(beta);
+  const betaToggle = state.currentIndex === index ? $("#betaEnabled") : null;
+  const betaEnabled = betaToggle ? betaToggle.checked : hasBeta;
+  const id = (working?.id || "").trim();
+  const name = (working?.name || id || "").trim();
+  return {
+    index,
+    working,
+    stable,
+    beta,
+    historyList,
+    hasApp: !!working,
+    hasStable,
+    hasBeta,
+    betaEnabled: betaEnabled || hasBeta,
+    hasHistory: historyList.length > 0,
+    historyCount: historyList.length,
+    stableUrl: (stable.url || stable.download || "").trim(),
+    stableVersion: (stable.version || "").trim(),
+    formIsDirtyForTarget: state.formDirty && state.currentIndex === index,
+    id,
+    name
+  };
+}
+function isAccel(event){
+  return PLATFORM_IS_MAC ? event.metaKey : event.ctrlKey;
+}
+function hasAnyModifier(event){
+  return event.ctrlKey || event.metaKey || event.shiftKey || event.altKey;
+}
+function isKey(event, value){
+  if (!event || !event.key) return false;
+  return event.key.toLowerCase() === value.toLowerCase();
+}
+function formatShortcutLabel(tokens = []){
+  if (!Array.isArray(tokens) || !tokens.length) return "";
+  return tokens.map((token) => {
+    if (!token) return "";
+    const normalized = token.toUpperCase();
+    if (normalized === "ACCEL") return ACCELERATOR_LABEL;
+    if (normalized === "ALT" || normalized === "OPTION") return OPTION_LABEL;
+    if (normalized === "SHIFT") return "Shift";
+    if (normalized === "SPACE") return "Space";
+    if (normalized === "ENTER") return "Enter";
+    if (normalized === "DELETE") return "Delete";
+    return token.length === 1 ? token.toUpperCase() : token;
+  }).filter(Boolean).join("+");
+}
+function getAppContextShortcutLabel(action){
+  const meta = APP_CONTEXT_SHORTCUTS[action];
+  if (!meta || !Array.isArray(meta.tokens) || !meta.tokens.length) return "";
+  return formatShortcutLabel(meta.tokens);
+}
+function getAppContextShortcutAction(event){
+  if (!event) return null;
+  for (const [action, meta] of Object.entries(APP_CONTEXT_SHORTCUTS)) {
+    if (typeof meta.matches !== "function") continue;
+    if (meta.matches(event)) return action;
+  }
+  return null;
+}
+function handleAppContextShortcut(event, options = {}){
+  const action = getAppContextShortcutAction(event);
+  if (!action) return false;
+  let index = options.index;
+  if (typeof index !== "number" || Number.isNaN(index)) {
+    index = appContextMenuState.index != null ? appContextMenuState.index : state.currentIndex;
+  }
+  if (index == null || index < 0 || index >= state.data.apps.length) return false;
+  if (index !== state.currentIndex) selectApp(index);
+  event.preventDefault();
+  hideAppContextMenu();
+  runAppContextAction(action);
+  return true;
 }
 async function copyAppText(value, label, options = {}){
   const preserveWhitespace = options.preserveWhitespace || false;
@@ -1389,13 +1814,74 @@ async function copyAppText(value, label, options = {}){
     return false;
   }
 }
-function setContextMenuItemDisabled(menu, selector, disabled){
+function setContextMenuItemState(menu, selector, state = {}){
   const node = menu.querySelector(selector);
   if (!node) return;
-  const flag = !!disabled;
-  if ("disabled" in node) node.disabled = flag;
-  node.classList.toggle("is-disabled", flag);
-  node.setAttribute("aria-disabled", flag ? "true" : "false");
+  if (state.text != null) {
+    const label = node.querySelector(".ctx-item-label");
+    if (label) label.textContent = state.text;
+    else node.textContent = state.text;
+  }
+  const disabled = Boolean(state.disabled);
+  if ("disabled" in node) node.disabled = disabled;
+  node.classList.toggle("is-disabled", disabled);
+  node.setAttribute("aria-disabled", disabled ? "true" : "false");
+  const reason = disabled ? (state.reason || "") : "";
+  if (reason) node.dataset.disabledReason = reason;
+  else delete node.dataset.disabledReason;
+  const explicitTitle = state.title;
+  if (explicitTitle !== undefined) {
+    if (explicitTitle) node.title = explicitTitle;
+    else node.removeAttribute("title");
+  } else if (reason) {
+    node.title = reason;
+  } else if (!disabled && node.dataset.disabledReason && node.title === node.dataset.disabledReason) {
+    node.removeAttribute("title");
+  }
+  if (state.meta !== undefined) {
+    if (state.meta) node.dataset.meta = state.meta;
+    else delete node.dataset.meta;
+  }
+  if (state.shortcut !== undefined) {
+    renderContextMenuShortcut(node, state.shortcut);
+  }
+  if (state.ariaLabel !== undefined) {
+    if (state.ariaLabel) node.setAttribute("aria-label", state.ariaLabel);
+    else node.removeAttribute("aria-label");
+  }
+}
+function renderContextMenuShortcut(node, shortcut){
+  const container = node.querySelector(".ctx-item-shortcut");
+  if (!container) {
+    if (shortcut) node.dataset.shortcut = shortcut;
+    else delete node.dataset.shortcut;
+    return;
+  }
+  container.innerHTML = "";
+  if (!shortcut) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
+  const tokens = shortcut.split("+").map((part) => part.trim()).filter(Boolean);
+  if (!tokens.length) {
+    container.hidden = true;
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  tokens.forEach((token, index) => {
+    const keyCap = document.createElement("kbd");
+    keyCap.textContent = token;
+    fragment.appendChild(keyCap);
+    if (index < tokens.length - 1) {
+      const plus = document.createElement("span");
+      plus.className = "ctx-shortcut-plus";
+      plus.textContent = "+";
+      fragment.appendChild(plus);
+    }
+  });
+  container.appendChild(fragment);
 }
 function setAppContextSubmenu(id){
   const menu = $("#appContextMenu");
@@ -1428,35 +1914,148 @@ function setAppContextSubmenu(id){
 function updateAppContextMenu(){
   const menu = $("#appContextMenu");
   if (!menu) return;
-  const index = state.currentIndex;
-  const working = getAppWorkingCopy(index);
-  const hasApp = !!working;
-  setContextMenuItemDisabled(menu, "[data-action=\"open-wizard\"]", !hasApp);
-  setContextMenuItemDisabled(menu, "[data-action=\"duplicate\"]", !hasApp);
-  setContextMenuItemDisabled(menu, "[data-action=\"delete\"]", !hasApp);
-  setContextMenuItemDisabled(menu, "[data-action=\"promote-beta\"]", !hasTrackData(working?.tracks?.beta));
-  setContextMenuItemDisabled(menu, "[data-action=\"clone-stable\"]", !hasTrackData(working?.tracks?.stable));
-  const toggle = menu.querySelector("[data-action=\"toggle-beta\"]");
-  if (toggle) {
-    const betaToggle = $("#betaEnabled");
-    const enabled = betaToggle ? betaToggle.checked : false;
-    toggle.textContent = enabled ? "Disable beta track" : "Enable beta track";
-    toggle.dataset.mode = enabled ? "disable" : "enable";
-  }
-  const stable = working?.tracks?.stable || {};
-  setContextMenuItemDisabled(menu, "[data-action=\"copy-stable-version\"]", !(stable.version || "").trim());
-  const stableUrl = (stable.url || stable.download || "").trim();
-  setContextMenuItemDisabled(menu, "[data-action=\"copy-stable-url\"]", !stableUrl);
-  const historyList = Array.isArray(working?.history) ? working.history : [];
-  setContextMenuItemDisabled(menu, "[data-action=\"history-copy-count\"]", historyList.length === 0);
-  setContextMenuItemDisabled(menu, "[data-action=\"history-highlight-latest\"]", historyList.length === 0);
-  setContextMenuItemDisabled(menu, "[data-action=\"history-run-diagnostics\"]", !hasApp);
-  setContextMenuItemDisabled(menu, "[data-action=\"history-add-suggested\"]", !hasApp);
-  setContextMenuItemDisabled(menu, "[data-action=\"copy-id\"]", !(working?.id || "").trim());
-  setContextMenuItemDisabled(menu, "[data-action=\"copy-name\"]", !(working?.name || working?.id || "").trim());
-  setContextMenuItemDisabled(menu, "[data-action=\"copy-json\"]", !hasApp);
-  setContextMenuItemDisabled(menu, "[data-action=\"copy-history-summary\"]", historyList.length === 0);
-  setContextMenuItemDisabled(menu, "[data-action=\"preview-app\"]", !hasApp);
+  const target = getAppContextMenuTarget();
+  const hasApp = target.hasApp;
+  const requireAppReason = "Select an application first.";
+  const appLabel = target.name || target.id || "";
+  const setStateFor = (action, selector, config = {}) => {
+    setContextMenuItemState(menu, selector, {
+      shortcut: getAppContextShortcutLabel(action),
+      ...config
+    });
+  };
+  menu.dataset.appId = target.id || "";
+  menu.dataset.appName = appLabel || "";
+  menu.dataset.targetIndex = target.index != null ? String(target.index) : "";
+  menu.setAttribute("aria-label", appLabel ? `Actions for ${appLabel}` : "Application actions");
+
+  const betaMissingReason = "Beta track has no data to promote.";
+  const stableMissingReason = "Stable track has no data yet.";
+  const noHistoryReason = "No history entries captured yet.";
+  const stableLinkReason = "Stable track is missing a link.";
+  const stableVersionReason = "Stable track version unavailable.";
+  const betaDisabledReason = "Enable the beta track first.";
+
+  setStateFor("open", "[data-action=\"open\"]", {
+    disabled: !hasApp,
+    reason: !hasApp ? requireAppReason : undefined,
+    title: hasApp ? `Reveal ${appLabel || "this app"} in the editor` : requireAppReason
+  });
+  setStateFor("open-wizard", "[data-action=\"open-wizard\"]", {
+    disabled: !hasApp,
+    reason: !hasApp ? requireAppReason : undefined,
+    title: hasApp ? `Load ${appLabel || "this app"} into the wizard` : requireAppReason
+  });
+  setStateFor("duplicate", "[data-action=\"duplicate\"]", {
+    disabled: !hasApp,
+    reason: !hasApp ? requireAppReason : undefined,
+    title: hasApp ? `Duplicate ${appLabel || "this app"}` : requireAppReason
+  });
+  setStateFor("delete", "[data-action=\"delete\"]", {
+    disabled: !hasApp,
+    reason: !hasApp ? requireAppReason : undefined,
+    title: hasApp ? `Delete ${appLabel || "this app"}` : requireAppReason
+  });
+  const promoteTitle = !target.hasBeta
+    ? betaMissingReason
+    : (target.hasStable && areTracksEquivalent(target.beta, target.stable)
+      ? "Stable already matches beta; promoting will reapply the same values."
+      : `Promote beta ${target.beta.version || ""} into stable.`);
+  setStateFor("promote-beta", "[data-action=\"promote-beta\"]", {
+    disabled: !target.hasBeta,
+    reason: !target.hasBeta ? betaMissingReason : undefined,
+    title: promoteTitle
+  });
+  const cloneTitle = !target.hasStable
+      ? stableMissingReason
+      : (target.hasBeta && areTracksEquivalent(target.stable, target.beta)
+        ? "Beta already matches stable; cloning will reapply the same values."
+        : "Clone stable data into beta.");
+  setStateFor("clone-stable", "[data-action=\"clone-stable\"]", {
+    disabled: !target.hasStable,
+    reason: !target.hasStable ? stableMissingReason : undefined,
+    title: cloneTitle
+  });
+  const toggleText = target.betaEnabled ? "Disable beta track" : "Enable beta track";
+  setStateFor("toggle-beta", "[data-action=\"toggle-beta\"]", {
+    disabled: !hasApp,
+    text: toggleText,
+    reason: !hasApp ? requireAppReason : undefined,
+    title: hasApp ? `${toggleText} for ${appLabel || "this app"}` : requireAppReason
+  });
+  const toggleButton = menu.querySelector("[data-action=\"toggle-beta\"]");
+  if (toggleButton) toggleButton.dataset.mode = target.betaEnabled ? "disable" : "enable";
+  const betaActionsDisabled = !target.betaEnabled;
+  setStateFor("suggest-beta-version", "[data-action=\"suggest-beta-version\"]", {
+    disabled: betaActionsDisabled,
+    reason: betaActionsDisabled ? betaDisabledReason : undefined,
+    title: betaActionsDisabled ? betaDisabledReason : "Suggest the next beta version"
+  });
+  setStateFor("suggest-beta-code", "[data-action=\"suggest-beta-code\"]", {
+    disabled: betaActionsDisabled,
+    reason: betaActionsDisabled ? betaDisabledReason : undefined,
+    title: betaActionsDisabled ? betaDisabledReason : "Generate a beta code suggestion"
+  });
+  const stableVersionAvailable = Boolean(target.stableVersion);
+  setStateFor("copy-stable-version", "[data-action=\"copy-stable-version\"]", {
+    disabled: !stableVersionAvailable,
+    reason: !stableVersionAvailable ? stableVersionReason : undefined,
+    title: stableVersionAvailable ? `Copy stable version ${target.stableVersion}` : stableVersionReason
+  });
+  const stableLinkAvailable = Boolean(target.stableUrl);
+  setStateFor("copy-stable-url", "[data-action=\"copy-stable-url\"]", {
+    disabled: !stableLinkAvailable,
+    reason: !stableLinkAvailable ? stableLinkReason : undefined,
+    title: stableLinkAvailable ? "Copy the stable release link" : stableLinkReason
+  });
+  setStateFor("history-copy-count", "[data-action=\"history-copy-count\"]", {
+    disabled: !target.hasHistory,
+    reason: !target.hasHistory ? noHistoryReason : undefined,
+    title: target.hasHistory ? `Copy count (${target.historyCount})` : noHistoryReason
+  });
+  setStateFor("history-highlight-latest", "[data-action=\"history-highlight-latest\"]", {
+    disabled: !target.hasHistory,
+    reason: !target.hasHistory ? noHistoryReason : undefined,
+    title: target.hasHistory ? "Highlight the latest history row" : noHistoryReason
+  });
+  setStateFor("history-run-diagnostics", "[data-action=\"history-run-diagnostics\"]", {
+    disabled: !hasApp,
+    reason: !hasApp ? requireAppReason : undefined,
+    title: hasApp ? "Queue history diagnostics" : requireAppReason
+  });
+  setStateFor("history-add-suggested", "[data-action=\"history-add-suggested\"]", {
+    disabled: !hasApp,
+    reason: !hasApp ? requireAppReason : undefined,
+    title: hasApp ? "Insert an auto-generated history entry" : requireAppReason
+  });
+  const idAvailable = Boolean(target.id);
+  const copyNameLabel = target.name || target.id || "";
+  setStateFor("copy-id", "[data-action=\"copy-id\"]", {
+    disabled: !idAvailable,
+    reason: !idAvailable ? "App ID missing." : undefined,
+    title: idAvailable ? `Copy ID "${target.id}"` : "App ID missing."
+  });
+  const nameAvailable = Boolean(copyNameLabel);
+  setStateFor("copy-name", "[data-action=\"copy-name\"]", {
+    disabled: !nameAvailable,
+    reason: !nameAvailable ? "App name unavailable." : undefined,
+    title: nameAvailable ? `Copy "${copyNameLabel}"` : "App name unavailable."
+  });
+  setStateFor("copy-json", "[data-action=\"copy-json\"]", {
+    disabled: !hasApp,
+    reason: !hasApp ? requireAppReason : undefined,
+    title: hasApp ? "Copy this app as JSON" : requireAppReason
+  });
+  setStateFor("copy-history-summary", "[data-action=\"copy-history-summary\"]", {
+    disabled: !target.hasHistory,
+    reason: !target.hasHistory ? noHistoryReason : undefined,
+    title: target.hasHistory ? "Copy the latest history summary" : noHistoryReason
+  });
+  setStateFor("preview-app", "[data-action=\"preview-app\"]", {
+    disabled: !hasApp,
+    reason: !hasApp ? requireAppReason : undefined,
+    title: hasApp ? "Refresh the preview JSON" : requireAppReason
+  });
 }
 function positionAppContextMenu(menu, x, y){
   if (!menu) return;
@@ -1476,6 +2075,10 @@ function hideAppContextMenu(){
   menu.classList.remove("is-visible");
   menu.setAttribute("aria-hidden", "true");
   menu.dataset.index = "";
+  menu.dataset.appName = "";
+  menu.dataset.appId = "";
+  menu.dataset.targetIndex = "";
+  menu.removeAttribute("aria-label");
   setAppContextSubmenu(null);
   appContextMenuState.index = null;
 }
@@ -1662,6 +2265,21 @@ function setupAppContextMenu(){
   const list = $("#appsList");
   if (!menu || !list || menu.dataset.bound === "1") return;
   menu.dataset.bound = "1";
+  const openMenuForIndex = (idx, coords = {}) => {
+    if (idx == null || Number.isNaN(idx) || idx < 0 || idx >= state.data.apps.length) return;
+    selectApp(idx);
+    let x = typeof coords.x === "number" ? coords.x : 0;
+    let y = typeof coords.y === "number" ? coords.y : 0;
+    if (x === 0 && y === 0) {
+      const refreshed = getAppListItemByIndex(idx);
+      if (refreshed) {
+        const rect = refreshed.getBoundingClientRect();
+        x = rect.left + rect.width / 2;
+        y = rect.top + rect.height / 2;
+      }
+    }
+    showAppContextMenu(idx, { x, y });
+  };
   list.addEventListener("contextmenu", (event) => {
     const item = event.target.closest("li");
     if (!item || !list.contains(item)) {
@@ -1671,15 +2289,20 @@ function setupAppContextMenu(){
     const idx = Number(item.dataset.index ?? item.dataset.appIndex);
     if (Number.isNaN(idx)) return;
     event.preventDefault();
-    selectApp(idx);
-    let x = event.clientX;
-    let y = event.clientY;
-    if (x === 0 && y === 0) {
-      const rect = item.getBoundingClientRect();
-      x = rect.left + rect.width / 2;
-      y = rect.top + rect.height / 2;
-    }
-    showAppContextMenu(idx, { x, y });
+    openMenuForIndex(idx, { x: event.clientX, y: event.clientY });
+  });
+  list.addEventListener("keydown", (event) => {
+    const item = event.target.closest("li");
+    const idxRaw = item ? Number(item.dataset.index ?? item.dataset.appIndex) : state.currentIndex;
+    const idx = typeof idxRaw === "number" && !Number.isNaN(idxRaw) ? idxRaw : null;
+    if (handleAppContextShortcut(event, { index: idx })) return;
+    const isMenuKey = event.key === "ContextMenu";
+    const isShiftF10 = event.key === "F10" && event.shiftKey;
+    if (!isMenuKey && !isShiftF10) return;
+    if (!item || !list.contains(item)) return;
+    if (idx == null) return;
+    event.preventDefault();
+    openMenuForIndex(idx);
   });
   menu.addEventListener("contextmenu", (event) => event.preventDefault());
   menu.addEventListener("pointerdown", (event) => event.stopPropagation());
@@ -1701,7 +2324,11 @@ function setupAppContextMenu(){
     if (!button || button.disabled) return;
     event.preventDefault();
     const action = button.dataset.action;
+    const targetIndex = appContextMenuState.index;
     hideAppContextMenu();
+    if (targetIndex != null && targetIndex !== state.currentIndex) {
+      selectApp(targetIndex);
+    }
     runAppContextAction(action);
   });
   menu.addEventListener("pointerover", (event) => {
@@ -1716,6 +2343,7 @@ function setupAppContextMenu(){
     }
   });
   menu.addEventListener("keydown", (event) => {
+    if (handleAppContextShortcut(event, { index: appContextMenuState.index })) return;
     if (event.key === "Escape") {
       if (appContextMenuState.submenu) {
         setAppContextSubmenu(null);
@@ -3421,7 +4049,13 @@ async function fetchFromGitHub(){
       throw new Error("Cannot reach GitHub. Please check your internet connection and try again.");
     }
     setButtonBusy(btn, true);
-    setStatus("Fetching from GitHub...", 0);
+    setStatus({
+      message: "Fetching from GitHub...",
+      variant: "progress",
+      meta: "Requesting repoversion.json",
+      help: "Contacting GitHub services...",
+      duration: 0
+    });
     
     // Fetch and validate response
     const { text, sha } = await ErrorHandler.handleAsync(
@@ -3471,7 +4105,12 @@ async function fetchFromGitHub(){
 
     // Show success messages
     const shortSha = sha.slice(0,8);
-    setStatus(`Fetched repoversion.json @ ${shortSha}`, 6000);
+    setStatus({
+      message: `Fetched repoversion.json @ ${shortSha}`,
+      variant: "success",
+      meta: "Editor data refreshed",
+      duration: 6000
+    });
     showToast("Repository refreshed", {
       variant: "success",
       icon: TOAST_ICONS.repositoryRefreshed,
@@ -3526,7 +4165,13 @@ async function ensureCommitTokenAvailable(){
   }
 
   const openAndFocusTokenDialog = (statusMessage) => {
-    if (statusMessage) setStatus(statusMessage, 7000);
+    if (statusMessage) {
+      setStatus({
+        message: statusMessage,
+        variant: "warning",
+        duration: 7000
+      });
+    }
     try {
       openTokenDialog();
     } catch (err) {
@@ -3612,7 +4257,12 @@ async function handleCommitFailure(error, context = {}){
   }
 
   showToast(toastTitle, { variant: "error", icon, meta });
-  setStatus(statusMessage, 7000);
+  setStatus({
+    message: statusMessage,
+    variant: "warning",
+    meta,
+    duration: 7000
+  });
   try {
     await refreshOnboardingStatus({ includeVerify });
   } catch (refreshErr) {
@@ -3633,13 +4283,22 @@ async function commitToGitHub(){
         meta: "Please check your internet connection and try again",
         duration: 8000
       });
-      setStatus("Cannot reach GitHub right now.", 6000);
+      setStatus({
+        message: "Cannot reach GitHub right now.",
+        variant: "error",
+        meta: "Check your connection and try again.",
+        duration: 6000
+      });
       return;
     }
 
     const tokenReady = await ensureCommitTokenAvailable();
     if (!tokenReady) {
-      setStatus("Commit cancelled. Provide a token with Contents: read/write to continue.", 6000);
+      setStatus({
+        message: "Commit cancelled. Provide a token with Contents: read/write to continue.",
+        variant: "warning",
+        duration: 6000
+      });
       return;
     }
 
@@ -3658,7 +4317,11 @@ async function commitToGitHub(){
       });
 
       if (!applyNow) {
-        setStatus("Commit cancelled. Apply changes first.", 5000);
+        setStatus({
+          message: "Commit cancelled. Apply changes first.",
+          variant: "warning",
+          duration: 5000
+        });
         return;
       }
       applyPendingChanges({ silent: true, updatePreview: true });
@@ -3673,14 +4336,22 @@ async function commitToGitHub(){
         icon: TOAST_ICONS.validationFailed,
         meta: `${issues.length} issue${issues.length === 1 ? "" : "s"} found`
       });
-      setStatus("Commit cancelled. Resolve validation issues.", 6000);
+      setStatus({
+        message: "Commit cancelled. Resolve validation issues.",
+        variant: "warning",
+        duration: 6000
+      });
       return;
     }
 
     if (settingsPrefs.confirmBeforeCommit !== false) {
       const proceed = await promptCommitConfirmation();
       if (!proceed) {
-        setStatus("Commit cancelled.", 4000);
+        setStatus({
+          message: "Commit cancelled.",
+          variant: "warning",
+          duration: 4000
+        });
         return;
       }
     }
@@ -3692,7 +4363,13 @@ async function commitToGitHub(){
     const text = buildJSON();
     updatePreviewDisplay(text);
 
-    setStatus("Committing to GitHub...", 0);
+    setStatus({
+      message: "Committing to GitHub...",
+      variant: "progress",
+      meta: "Preparing manifest and pushing changes",
+      help: "Working on your commit...",
+      duration: 0
+    });
 
     let res;
     let storedToken = onboarding.storedToken || null;
@@ -3711,7 +4388,11 @@ async function commitToGitHub(){
         icon: TOAST_ICONS.tokenRequired,
         meta: "Store a token with Contents: read/write scope before committing."
       });
-      setStatus("Commit blocked. Store a GitHub token first.", 6000);
+      setStatus({
+        message: "Commit blocked. Store a GitHub token first.",
+        variant: "warning",
+        duration: 6000
+      });
       return;
     }
 
@@ -3742,7 +4423,12 @@ async function commitToGitHub(){
     renderApps();
 
     const shortSha = newSha.slice(0, 8);
-    setStatus(`Committed repoversion.json @ ${shortSha}`, 7000);
+    setStatus({
+      message: `Committed repoversion.json @ ${shortSha}`,
+      variant: "success",
+      meta: "Changes pushed to GitHub",
+      duration: 7000
+    });
     showToast("Manifest committed to GitHub", {
       variant: "success",
       icon: TOAST_ICONS.commit,
@@ -4726,14 +5412,24 @@ async function ensureWorkspaceStorage(){
       icon: TOAST_ICONS.prepareWorkspace,
       meta: targetDir
     });
-    setStatus("Workspace storage prepared.", 4000);
+    setStatus({
+      message: "Workspace storage prepared.",
+      variant: "success",
+      meta: targetDir,
+      duration: 4000
+    });
     await refreshOnboardingStatus({ includeVerify: false, focusStep: "data", preserveStep: true });
   }catch(err){
     console.error(err);
     setOnboardingStepStatus("data", "error", "Creation failed");
     const grid = $("#onboardDataPaths");
     if (grid) grid.innerHTML = renderTile("Error", err?.message || String(err));
-    setStatus("Could not create workspace folder.", 5000);
+    setStatus({
+      message: "Could not create workspace folder.",
+      variant: "error",
+      meta: err?.message || "",
+      duration: 5000
+    });
     showToast("Workspace setup failed", { variant: "error", icon: TOAST_ICONS.workspaceFailed, meta: err?.message || String(err) });
   }
 }
@@ -4744,12 +5440,21 @@ async function removeStoredToken(){
   } catch (err) {
     console.error(err);
     showToast("Token removal failed", { variant: "error", icon: TOAST_ICONS.tokenRemovalFailed, meta: err?.message || String(err) });
-    setStatus("Token removal failed.", 5000);
+    setStatus({
+      message: "Token removal failed.",
+      variant: "error",
+      meta: err?.message || "",
+      duration: 5000
+    });
     return;
   }
   if (!stored?.token) {
     showToast("Token removal failed", { variant: "error", icon: TOAST_ICONS.tokenRemovalFailed, meta: "No stored token found on this device." });
-    setStatus("No stored token to remove.", 4000);
+    setStatus({
+      message: "No stored token to remove.",
+      variant: "warning",
+      duration: 4000
+    });
     return;
   }
   if (stored.source === "env") {
@@ -4758,10 +5463,19 @@ async function removeStoredToken(){
   }
   const confirmed = await promptTokenRemovalConfirmation();
   if (!confirmed) {
-    setStatus("Token removal cancelled.", 4000);
+    setStatus({
+      message: "Token removal cancelled.",
+      variant: "warning",
+      duration: 4000
+    });
     return;
   }
-  setStatus("Removing stored token...", 0);
+  setStatus({
+    message: "Removing stored token...",
+    variant: "progress",
+    meta: "Cleaning local credentials",
+    duration: 0
+  });
   try{
     const result = await vt.token.remove();
     const cleanup = result?.cleanup || {};
@@ -4791,10 +5505,18 @@ async function removeStoredToken(){
         icon: TOAST_ICONS.tokenEnv,
         meta: "A GITHUB_TOKEN environment variable is still active."
       });
-      setStatus("Environment token still active.", 5000);
+      setStatus({
+        message: "Environment token still active.",
+        variant: "warning",
+        duration: 5000
+      });
     } else {
       showToast("Token removed", { variant: "success", icon: TOAST_ICONS.tokenRemoved });
-      setStatus("Token removed.", 4000);
+      setStatus({
+        message: "Token removed.",
+        variant: "success",
+        duration: 4000
+      });
       if (Array.isArray(cleanup.fileRemoved) && cleanup.fileRemoved.length) {
         console.info("Removed legacy token files:", cleanup.fileRemoved);
       }
@@ -4813,7 +5535,12 @@ async function removeStoredToken(){
   }catch(err){
     console.error(err);
     showToast("Token removal failed", { variant: "error", icon: TOAST_ICONS.tokenRemovalFailed, meta: err?.message || String(err) });
-    setStatus("Token removal failed.", 5000);
+    setStatus({
+      message: "Token removal failed.",
+      variant: "error",
+      meta: err?.message || "",
+      duration: 5000
+    });
   }
 }
 async function saveToken(){
@@ -4821,7 +5548,11 @@ async function saveToken(){
   if (!t) { alert("Token cannot be empty."); return; }
   try {
     await vt.token.set(t);
-    setStatus("Token saved.", 4000);
+    setStatus({
+      message: "Token saved.",
+      variant: "success",
+      duration: 4000
+    });
   } catch(e){
     alert("Could not save token:\n" + e);
     return;
@@ -4831,7 +5562,12 @@ async function saveToken(){
   closeTokenDialog();
 }
 async function verifyToken(){
-  setStatus("Verifying token...", 0);
+  setStatus({
+    message: "Verifying token...",
+    variant: "progress",
+    meta: "Contacting GitHub",
+    duration: 0
+  });
   const ctx = getVerifyDialogContext();
   const buildErrorInfo = (err) => ({
     hasToken: !!(onboarding.storedToken?.token),
@@ -4850,7 +5586,11 @@ async function verifyToken(){
       infoForOnboarding = info;
       if (!info?.hasToken){
         alert("No token is stored. Set a token first.");
-        setStatus("No token stored.", 4000);
+        setStatus({
+          message: "No token stored.",
+          variant: "warning",
+          duration: 4000
+        });
         return;
       }
       const lines = [];
@@ -4861,12 +5601,30 @@ async function verifyToken(){
       if (info.acceptedScopes?.length) lines.push(`Endpoint expects scopes (example /user): ${info.acceptedScopes.join(" | ")}`);
       if (info.error) lines.push(`Warning: ${info.error}`);
       alert(`Token check:\n\n${lines.join(" | ")}`);
-      setStatus(info.error ? "Token check returned warnings." : `Token verified for ${info.login || "GitHub"}.`, 6000);
+      setStatus(
+        info.error
+          ? {
+              message: "Token check returned warnings.",
+              variant: "warning",
+              meta: info.error,
+              duration: 6000
+            }
+          : {
+              message: `Token verified for ${info.login || "GitHub"}.`,
+              variant: "success",
+              duration: 6000
+            }
+      );
     }catch(err){
       console.error(err);
       infoForOnboarding = buildErrorInfo(err);
       alert(`Token check failed:\n${err.message || err}`);
-      setStatus("Token check failed.", 5000);
+      setStatus({
+        message: "Token check failed.",
+        variant: "error",
+        meta: err?.message || "",
+        duration: 5000
+      });
     }finally{
       await refreshOnboardingStatus({ tokenInfo: infoForOnboarding });
     }
@@ -4897,7 +5655,11 @@ async function verifyToken(){
       const rows = [{ label: "Stored via", value: info?.source || "None" }];
       fillVerifyDetails(ctx, rows);
       showVerifyMessage(ctx, "No token is stored. Use the GitHub Token dialog to add one.", "is-empty");
-      setStatus("No token stored.", 4000);
+      setStatus({
+        message: "No token stored.",
+        variant: "warning",
+        duration: 4000
+      });
       return;
     }
     const friendlySource = friendlyTokenSource(info.source);
@@ -4920,13 +5682,22 @@ async function verifyToken(){
       setVerifyIcon(ctx.icon, "error");
       if (status) status.textContent = "Token check failed. Review details below.";
       showVerifyMessage(ctx, info.error, "is-error");
-      setStatus("Token check failed.", 5000);
+      setStatus({
+        message: "Token check failed.",
+        variant: "error",
+        meta: info.error,
+        duration: 5000
+      });
     }else{
       if (dialog) dialog.dataset.state = "ok";
       setVerifyIcon(ctx.icon, "ok");
       if (status) status.textContent = `Token verified for ${name}.`;
       showVerifyMessage(ctx, "GitHub confirmed the stored token is ready to use.", "is-success");
-      setStatus(`Token verified for ${name}.`, 6000);
+      setStatus({
+        message: `Token verified for ${name}.`,
+        variant: "success",
+        duration: 6000
+      });
     }
   }catch(err){
     console.error(err);
@@ -4937,7 +5708,12 @@ async function verifyToken(){
     if (status) status.textContent = "Token check failed.";
     showVerifyMessage(ctx, err?.message ? `Error: ${err.message}` : String(err || "Unknown error"), "is-error");
     fillVerifyDetails(ctx, []);
-    setStatus("Token check failed.", 5000);
+    setStatus({
+      message: "Token check failed.",
+      variant: "error",
+      meta: err?.message || "",
+      duration: 5000
+    });
   }finally{
     await refreshOnboardingStatus({ tokenInfo: infoForOnboarding });
   }
@@ -5275,6 +6051,8 @@ function bind(){
   switchEditorSection(state.editorSection || "section-dataset", { restore: true });
   bindSidebarResize();
   updateBreadcrumbsFromState();
+  ensureStatusBarElements();
+  restoreStatusHint();
   if (!bind.beforeCloseBound && vt?.win?.onBeforeClose) {
     vt.win.onBeforeClose(handleWindowBeforeClose);
     bind.beforeCloseBound = true;
@@ -5605,7 +6383,11 @@ function bind(){
     updatePreviewDisplay();
     const app = state.data.apps[state.currentIndex];
     const label = app ? (app.name || app.id || "app") : "";
-    setStatus("Applied form changes.", 3000);
+    setStatus({
+      message: "Applied form changes.",
+      variant: "success",
+      duration: 3000
+    });
     showToast("Changes applied to dataset", {
       variant: "success",
       icon: TOAST_ICONS.datasetApplied,
@@ -5615,7 +6397,11 @@ function bind(){
   $("#btnReset").addEventListener("click", () => {
     if (state.currentIndex == null) clearForm();
     else populateForm(state.data.apps[state.currentIndex]);
-    setStatus("Form reset.", 3000);
+    setStatus({
+      message: "Form reset.",
+      variant: "info",
+      duration: 3000
+    });
     setFormDirty(false);
   });
 
@@ -5624,7 +6410,11 @@ function bind(){
     if (state.currentIndex != null) applyFormToApp(state.currentIndex);
     const t = buildJSON();
     updatePreviewDisplay(t);
-    navigator.clipboard.writeText(t).then(() => setStatus("JSON copied.", 3000));
+    navigator.clipboard.writeText(t).then(() => setStatus({
+      message: "JSON copied.",
+      variant: "success",
+      duration: 3000
+    }));
   });
   $("#btnSaveJson").addEventListener("click", saveLocal);
   $("#btnValidate").addEventListener("click", () => {
@@ -5662,9 +6452,13 @@ function bind(){
       setButtonBusy(settingsRefresh, true);
       try {
         await refreshOnboardingStatus({ includeVerify: true });
-        setStatus("Workspace status refreshed.", 2600);
+        setStatus({
+          message: "Workspace status refreshed.",
+          variant: "success",
+          duration: 2600
+        });
       } finally {
-    setButtonBusy(settingsRefresh, false);
+        setButtonBusy(settingsRefresh, false);
       }
     });
   }
@@ -5688,10 +6482,19 @@ function bind(){
       try {
         const res = await vt.setup.openDir();
         if (res?.dir) showToast("Workspace folder opened", { variant: "info", icon: TOAST_ICONS.workspaceOpened, meta: res.dir });
-        setStatus("Workspace folder opened.", 2600);
+        setStatus({
+          message: "Workspace folder opened.",
+          variant: "success",
+          duration: 2600
+        });
       } catch (err) {
         console.error(err);
-        setStatus("Unable to open workspace folder.", 3200);
+        setStatus({
+          message: "Unable to open workspace folder.",
+          variant: "error",
+          meta: err?.message || "",
+          duration: 3200
+        });
         showToast("Open folder failed", { variant: "error", icon: TOAST_ICONS.folderError, meta: err?.message || String(err) });
       }
     });
@@ -5703,16 +6506,33 @@ function bind(){
       const target = document.getElementById(targetId);
       const text = target?.textContent?.trim();
       if (!text || text === "--") {
-        setStatus("Path not available yet.", 2400);
+        setStatus({
+          message: "Path not available yet.",
+          variant: "warning",
+          duration: 2400
+        });
         return;
       }
       if (!navigator.clipboard?.writeText) {
-        setStatus("Clipboard access unavailable.", 2400);
+        setStatus({
+          message: "Clipboard access unavailable.",
+          variant: "warning",
+          duration: 2400
+        });
         return;
       }
-      navigator.clipboard.writeText(text).then(() => setStatus("Path copied to clipboard.", 2400)).catch((err) => {
+      navigator.clipboard.writeText(text).then(() => setStatus({
+        message: "Path copied to clipboard.",
+        variant: "success",
+        duration: 2400
+      })).catch((err) => {
         console.error("Copy failed:", err);
-        setStatus("Could not copy path.", 2400);
+        setStatus({
+          message: "Could not copy path.",
+          variant: "error",
+          meta: err?.message || "",
+          duration: 2400
+        });
       });
     });
   });
@@ -5787,7 +6607,12 @@ function bind(){
     }catch(err){
       console.error(err);
       showToast("Open folder failed", { variant: "error", icon: TOAST_ICONS.folderError, meta: err?.message || String(err) });
-      setStatus("Could not open workspace folder.", 4000);
+      setStatus({
+        message: "Could not open workspace folder.",
+        variant: "error",
+        meta: err?.message || "",
+        duration: 4000
+      });
     }
   });
   const onboardRefresh = $("#onboardRefresh");
@@ -5862,7 +6687,11 @@ function bind(){
     updatePreviewDisplay();
     switchTab("tab-editor");
     setDirty(true);
-    setStatus("Wizard created a new application.", 3000);
+    setStatus({
+      message: "Wizard created a new application.",
+      variant: "success",
+      duration: 3000
+    });
     showToast("Wizard output applied", {
       variant: "success",
       icon: TOAST_ICONS.datasetApplied,
@@ -5872,15 +6701,27 @@ function bind(){
   });
   $("#wzLoadCurrent").addEventListener("click", () => {
     if (state.currentIndex == null) {
-      setStatus("Select an application before loading it into the wizard.", 4000);
+      setStatus({
+        message: "Select an application before loading it into the wizard.",
+        variant: "warning",
+        duration: 4000
+      });
       return;
     }
     loadWizardFromApp(state.data.apps[state.currentIndex]);
-    setStatus("Current selection loaded into the wizard.", 3000);
+    setStatus({
+      message: "Current selection loaded into the wizard.",
+      variant: "success",
+      duration: 3000
+    });
   });
   $("#wzReset").addEventListener("click", () => {
     resetWizardForm();
-    setStatus("Wizard reset.", 2500);
+    setStatus({
+      message: "Wizard reset.",
+      variant: "info",
+      duration: 2500
+    });
   });
 
   // Shortcuts
@@ -5904,7 +6745,11 @@ function addNewApp(){
   setDirty(true);
   renderApps();
   populateForm(state.data.apps[state.currentIndex]);
-  setStatus("Added app.", 3000);
+  setStatus({
+    message: "Added app.",
+    variant: "success",
+    duration: 3000
+  });
 }
 function deleteApp(){
   if (state.currentIndex == null) return;
@@ -5915,7 +6760,11 @@ function deleteApp(){
   setDirty(true);
   renderApps();
   if (state.currentIndex != null) populateForm(state.data.apps[state.currentIndex]); else clearForm();
-  setStatus("Deleted app.", 3000);
+  setStatus({
+    message: "Deleted app.",
+    variant: "success",
+    duration: 3000
+  });
 }
 function duplicateApp(){
   if (state.currentIndex == null) return;
@@ -5930,7 +6779,11 @@ function duplicateApp(){
   setDirty(true);
   renderApps();
   populateForm(state.data.apps[state.currentIndex]);
-  setStatus("Duplicated app.", 3000);
+  setStatus({
+    message: "Duplicated app.",
+    variant: "success",
+    duration: 3000
+  });
 }
 
 // Repository search
@@ -6370,9 +7223,17 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   } else {
     if (tokenSnapshot?.token) {
-      setStatus("Auto fetch on launch is disabled. Use Fetch when you're ready.", 3600);
+      setStatus({
+        message: "Auto fetch on launch is disabled. Use Fetch when you're ready.",
+        variant: "info",
+        duration: 3600
+      });
     } else {
-      setStatus("Auto fetch on launch is disabled. Configure a GitHub token to fetch when ready.", 3600);
+      setStatus({
+        message: "Auto fetch on launch is disabled. Configure a GitHub token to fetch when ready.",
+        variant: "info",
+        duration: 3600
+      });
     }
   }
   

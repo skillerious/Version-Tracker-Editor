@@ -4,5 +4,5 @@
   "description": "Version Tracker Editor application",
   "updateEndpoint": "https://raw.githubusercontent.com/skillerious/Version-Tracker/main/version.json",
   "minimumUpdateCheckInterval": 3600000,
-  "lastUpdateCheck": "2025-11-08T19:10:50.434Z"
+  "lastUpdateCheck": "2025-11-09T10:46:48.195Z"
 }

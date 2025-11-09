@@ -675,10 +675,16 @@
   </div>
 
   <!-- Status bar -->
-  <footer id="statusbar" role="status">
+  <footer id="statusbar" role="status" aria-live="polite">
     <div class="sb-left">
-      <span id="dirtyDot" class="dot"></span>
-      <span id="sbText">Ready.</span>
+      <span id="dirtyDot" class="dot" aria-hidden="true"></span>
+      <div class="sb-status">
+        <span id="sbStatusIcon" class="sb-icon" aria-hidden="true" hidden></span>
+        <div class="sb-msg">
+          <span id="sbText">Ready.</span>
+          <span id="sbMeta" class="sb-meta" hidden></span>
+        </div>
+      </div>
     </div>
     <div class="sb-right">
       <span id="sbHelp" class="muted">F5: Fetch | Ctrl+S: Commit</span>
@@ -1268,61 +1274,130 @@
 
   <div id="appContextMenu" class="ctx-menu ctx-menu-root" role="menu" aria-hidden="true" tabindex="-1">
     <div class="ctx-menu-group">
-      <button type="button" class="ctx-item" data-action="open" role="menuitem">Open</button>
-      <button type="button" class="ctx-item" data-action="open-wizard" role="menuitem">Load into wizard</button>
+      <button type="button" class="ctx-item" data-action="open" role="menuitem">
+        <span class="ctx-item-label">Open</span>
+        <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+      </button>
+      <button type="button" class="ctx-item" data-action="open-wizard" role="menuitem">
+        <span class="ctx-item-label">Load into wizard</span>
+        <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+      </button>
     </div>
     <div class="ctx-divider"></div>
     <div class="ctx-menu-group">
-      <button type="button" class="ctx-item" data-action="duplicate" role="menuitem">Duplicate...</button>
-      <button type="button" class="ctx-item danger" data-action="delete" role="menuitem">Delete...</button>
+      <button type="button" class="ctx-item" data-action="duplicate" role="menuitem">
+        <span class="ctx-item-label">Duplicate…</span>
+        <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+      </button>
+      <button type="button" class="ctx-item danger" data-action="delete" role="menuitem">
+        <span class="ctx-item-label">Delete…</span>
+        <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+      </button>
     </div>
     <div class="ctx-divider"></div>
     <div class="ctx-submenu" data-submenu="copy">
       <button type="button" class="ctx-item has-submenu" data-submenu-trigger="copy" role="menuitem" aria-haspopup="true" aria-expanded="false">
-        <span>Copy</span>
+        <span class="ctx-item-label">Copy</span>
+        <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
         <span class="ctx-caret" aria-hidden="true">&gt;</span>
       </button>
       <div class="ctx-menu ctx-menu-nested" data-menu="copy" role="menu" aria-hidden="true">
-        <button type="button" class="ctx-item" data-action="copy-id" role="menuitem">App ID</button>
-        <button type="button" class="ctx-item" data-action="copy-name" role="menuitem">App name</button>
-        <button type="button" class="ctx-item" data-action="copy-stable-version" role="menuitem">Stable version</button>
-        <button type="button" class="ctx-item" data-action="copy-stable-url" role="menuitem">Stable URL</button>
-        <button type="button" class="ctx-item" data-action="copy-json" role="menuitem">JSON snippet</button>
-        <button type="button" class="ctx-item" data-action="copy-history-summary" role="menuitem">Latest history summary</button>
+        <button type="button" class="ctx-item" data-action="copy-id" role="menuitem">
+          <span class="ctx-item-label">App ID</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="copy-name" role="menuitem">
+          <span class="ctx-item-label">App name</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="copy-stable-version" role="menuitem">
+          <span class="ctx-item-label">Stable version</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="copy-stable-url" role="menuitem">
+          <span class="ctx-item-label">Stable URL</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="copy-json" role="menuitem">
+          <span class="ctx-item-label">JSON snippet</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="copy-history-summary" role="menuitem">
+          <span class="ctx-item-label">Latest history summary</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
       </div>
     </div>
     <div class="ctx-submenu" data-submenu="tracks">
       <button type="button" class="ctx-item has-submenu" data-submenu-trigger="tracks" role="menuitem" aria-haspopup="true" aria-expanded="false">
-        <span>Tracks</span>
+        <span class="ctx-item-label">Tracks</span>
+        <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
         <span class="ctx-caret" aria-hidden="true">&gt;</span>
       </button>
       <div class="ctx-menu ctx-menu-nested" data-menu="tracks" role="menu" aria-hidden="true">
-        <button type="button" class="ctx-item" data-action="promote-beta" role="menuitem">Promote beta -> stable</button>
-        <button type="button" class="ctx-item" data-action="clone-stable" role="menuitem">Clone stable -> beta</button>
-        <button type="button" class="ctx-item" data-action="toggle-beta" role="menuitem">Enable beta track</button>
+        <button type="button" class="ctx-item" data-action="promote-beta" role="menuitem">
+          <span class="ctx-item-label">Promote beta -> stable</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="clone-stable" role="menuitem">
+          <span class="ctx-item-label">Clone stable -> beta</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="toggle-beta" role="menuitem">
+          <span class="ctx-item-label">Enable beta track</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
         <div class="ctx-divider"></div>
-        <button type="button" class="ctx-item" data-action="suggest-beta-version" role="menuitem">Suggest beta version</button>
-        <button type="button" class="ctx-item" data-action="suggest-beta-code" role="menuitem">Suggest beta code</button>
-        <button type="button" class="ctx-item" data-action="apply-form-to-app" role="menuitem">Apply pending changes</button>
+        <button type="button" class="ctx-item" data-action="suggest-beta-version" role="menuitem">
+          <span class="ctx-item-label">Suggest beta version</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="suggest-beta-code" role="menuitem">
+          <span class="ctx-item-label">Suggest beta code</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="apply-form-to-app" role="menuitem">
+          <span class="ctx-item-label">Apply pending changes</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
       </div>
     </div>
     <div class="ctx-submenu" data-submenu="history">
       <button type="button" class="ctx-item has-submenu" data-submenu-trigger="history" role="menuitem" aria-haspopup="true" aria-expanded="false">
-        <span>History</span>
+        <span class="ctx-item-label">History</span>
+        <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
         <span class="ctx-caret" aria-hidden="true">&gt;</span>
       </button>
       <div class="ctx-menu ctx-menu-nested" data-menu="history" role="menu" aria-hidden="true">
-        <button type="button" class="ctx-item" data-action="history-add-suggested" role="menuitem">Add suggested entry</button>
-        <button type="button" class="ctx-item" data-action="history-run-diagnostics" role="menuitem">Run diagnostics</button>
-        <button type="button" class="ctx-item" data-action="history-copy-count" role="menuitem">Copy entry count</button>
+        <button type="button" class="ctx-item" data-action="history-add-suggested" role="menuitem">
+          <span class="ctx-item-label">Add suggested entry</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="history-run-diagnostics" role="menuitem">
+          <span class="ctx-item-label">Run diagnostics</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
+        <button type="button" class="ctx-item" data-action="history-copy-count" role="menuitem">
+          <span class="ctx-item-label">Copy entry count</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
         <div class="ctx-divider"></div>
-        <button type="button" class="ctx-item" data-action="history-highlight-latest" role="menuitem">Highlight latest row</button>
+        <button type="button" class="ctx-item" data-action="history-highlight-latest" role="menuitem">
+          <span class="ctx-item-label">Highlight latest row</span>
+          <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+        </button>
       </div>
     </div>
     <div class="ctx-divider"></div>
     <div class="ctx-menu-group">
-      <button type="button" class="ctx-item" data-action="open-calendar" role="menuitem">Open in calendar</button>
-      <button type="button" class="ctx-item" data-action="preview-app" role="menuitem">Refresh preview JSON</button>
+      <button type="button" class="ctx-item" data-action="open-calendar" role="menuitem">
+        <span class="ctx-item-label">Open in calendar</span>
+        <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+      </button>
+      <button type="button" class="ctx-item" data-action="preview-app" role="menuitem">
+        <span class="ctx-item-label">Refresh preview JSON</span>
+        <span class="ctx-item-shortcut" aria-hidden="true" hidden></span>
+      </button>
     </div>
   </div>
 

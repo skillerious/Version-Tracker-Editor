@@ -9,59 +9,307 @@
     <link rel="stylesheet" href="./splash.css" />
   </head>
   <body>
-    <div class="splash">
-      <div class="splash__ambient"></div>
-      <div class="splash__panel">
-        <div class="splash__logo">
-          <div class="logo__glow"></div>
-          <img src="./assets/logo.png" alt="Version Tracker logo" />
-        </div>
-        <div class="splash__headline">
-          <span>Version Tracker Editor</span>
-          <strong>Preparing your workspace</strong>
-        </div>
-        <p class="splash__subtitle">
-          Restoring context, warming caches and syncing with GitHub…
-        </p>
-        <div class="splash__status" data-status-region>
-          <div class="status__pulse"></div>
-          <span class="status__text" data-status-text>Loading interface</span>
-          <div class="status__bar">
-            <div class="status__fill"></div>
-            <div class="status__shine"></div>
+    <div class="splash-window" role="application" aria-label="Version Tracker loading screen">
+      <!-- Top chrome -->
+      <header class="splash-titlebar">
+        <div class="title-left">
+          <div class="title-icon" aria-hidden="true">
+            <img src="./assets/logo.png" alt="" />
+          </div>
+          <div class="title-text">
+            <span class="app-name">Version Tracker Editor</span>
+            <span class="app-status" data-status-text>Starting…</span>
           </div>
         </div>
-        <div class="splash__meta">
-          <span class="meta__item">Secure token storage</span>
-          <span class="meta__divider"></span>
-          <span class="meta__item">Manifest insights</span>
-          <span class="meta__divider"></span>
-          <span class="meta__item">GitHub powered</span>
+        <div class="title-right">
+          <span class="title-pill" data-phase-pill>Loading</span>
         </div>
-      </div>
+      </header>
+
+      <!-- Body -->
+      <main class="splash-body">
+        <!-- Primary column -->
+        <section class="splash-primary" aria-label="Loading details">
+          <header class="primary-header">
+            <h1>Preparing your workspace</h1>
+            <p>Restoring layout, loading manifests, and checking for remote changes.</p>
+            <span class="env-line" data-env-line>Environment: Desktop • GitHub enabled</span>
+          </header>
+
+          <div class="progress-block" data-status-region aria-label="Startup progress">
+            <div class="progress-top-row">
+              <span class="progress-title" data-progress-title>Startup tasks</span>
+              <span class="progress-value" data-progress-label>0%</span>
+            </div>
+            <div class="progress-track" aria-hidden="true">
+              <div class="progress-fill"></div>
+            </div>
+          </div>
+
+          <div class="meta-row">
+            <span class="meta-pill active">Secure token storage</span>
+            <span class="meta-pill">Manifest insights</span>
+            <span class="meta-pill">GitHub powered</span>
+          </div>
+        </section>
+
+        <!-- Side column -->
+        <aside class="splash-side" aria-label="Startup sequence">
+          <h2 class="side-title">Startup sequence</h2>
+          <ul class="task-list" data-task-list>
+            <li class="task-item active">
+              <div class="task-dot" aria-hidden="true"></div>
+              <div class="task-text">
+                <span class="task-title">Loading interface</span>
+                <span class="task-sub">Panels, theme, routes</span>
+              </div>
+            </li>
+            <li class="task-item">
+              <div class="task-dot" aria-hidden="true"></div>
+              <div class="task-text">
+                <span class="task-title">Restoring workspace</span>
+                <span class="task-sub">Session, file context</span>
+              </div>
+            </li>
+            <li class="task-item">
+              <div class="task-dot" aria-hidden="true"></div>
+              <div class="task-text">
+                <span class="task-title">Syncing with GitHub</span>
+                <span class="task-sub">Remote manifests</span>
+              </div>
+            </li>
+          </ul>
+        </aside>
+      </main>
+
+      <!-- Footer -->
+      <footer class="splash-footer">
+        <span class="footer-left" data-footer-left>Loading environment…</span>
+        <span class="footer-right">Skillerious • desktop</span>
+      </footer>
     </div>
+
     <script>
       (() => {
+        // --------- DOM refs
         const statusText = document.querySelector("[data-status-text]");
-        const progressFill = document.querySelector(".status__fill");
-        const metaBadges = Array.from(document.querySelectorAll(".meta__item"));
-        const cues = [
-          { text: "Loading interface", progress: 0.32, badge: 0 },
-          { text: "Restoring workspace", progress: 0.56, badge: 1 },
-          { text: "Syncing with GitHub", progress: 0.82, badge: 2 }
-        ];
-        let index = 0;
-        const applyCue = () => {
-          const cue = cues[index % cues.length];
-          statusText.textContent = cue.text;
-          progressFill.style.transform = `scaleX(${cue.progress})`;
-          metaBadges.forEach((badge, badgeIndex) => {
-            badge.classList.toggle("active", badgeIndex === cue.badge);
-          });
-          index += 1;
+        const progressFill = document.querySelector(".progress-fill");
+        const progressLabel = document.querySelector("[data-progress-label]");
+        const metaPills = Array.from(document.querySelectorAll(".meta-pill"));
+        const taskListEl = document.querySelector("[data-task-list]");
+        const phasePill = document.querySelector("[data-phase-pill]");
+        const footerLeft = document.querySelector("[data-footer-left]");
+        const envLine = document.querySelector("[data-env-line]");
+
+        // --------- default config (used if no splash.config.json found)
+        const DEFAULT_CONFIG = {
+          envText: "Environment: Desktop • GitHub enabled",
+          footerText: "Loading environment…",
+          phase: "Loading",
+          steps: [
+            {
+              id: "ui",
+              label: "Loading interface",
+              subLabel: "Panels, theme, routes",
+              statusText: "Loading interface",
+              progress: 0.32,
+              durationMs: 1600,
+              pillIndex: 0
+            },
+            {
+              id: "workspace",
+              label: "Restoring workspace",
+              subLabel: "Session, file context",
+              statusText: "Restoring workspace",
+              progress: 0.56,
+              durationMs: 1700,
+              pillIndex: 1
+            },
+            {
+              id: "github",
+              label: "Syncing with GitHub",
+              subLabel: "Remote manifests",
+              statusText: "Syncing with GitHub",
+              progress: 0.82,
+              durationMs: 2000,
+              pillIndex: 2
+            }
+          ]
         };
-        applyCue();
-        setInterval(applyCue, 2400);
+
+        let currentConfig = structuredClone(DEFAULT_CONFIG);
+        let currentStepIndex = 0;
+        let progressAnimFrame = null;
+        let isExternalControl = false; // flips to true if window.splash.setStatus is used
+
+        // ---------- helpers
+
+        function clamp01(num) {
+          return Math.min(1, Math.max(0, num));
+        }
+
+        function animateProgressTo(target, duration = 400) {
+          const start = performance.now();
+          const startWidth = parseFloat(progressFill.style.width || "0") / 100 || 0;
+          const endWidth = clamp01(target);
+
+          if (progressAnimFrame) cancelAnimationFrame(progressAnimFrame);
+
+          function frame(now) {
+            const t = Math.min(1, (now - start) / duration);
+            const eased = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t; // easeInOut
+            const value = startWidth + (endWidth - startWidth) * eased;
+            progressFill.style.width = (value * 100).toFixed(0) + "%";
+            progressLabel.textContent = (value * 100).toFixed(0) + "%";
+
+            if (t < 1) {
+              progressAnimFrame = requestAnimationFrame(frame);
+            }
+          }
+
+          progressAnimFrame = requestAnimationFrame(frame);
+        }
+
+        function renderTaskList(steps) {
+          if (!taskListEl) return;
+          taskListEl.innerHTML = "";
+          steps.forEach((step, idx) => {
+            const li = document.createElement("li");
+            li.className = "task-item" + (idx === 0 ? " active" : "");
+            li.dataset.stepId = step.id;
+
+            li.innerHTML = `
+              <div class="task-dot" aria-hidden="true"></div>
+              <div class="task-text">
+                <span class="task-title">${step.label}</span>
+                <span class="task-sub">${step.subLabel || ""}</span>
+              </div>
+            `;
+            taskListEl.appendChild(li);
+          });
+        }
+
+        function setActiveStep(idx) {
+          currentStepIndex = idx;
+          const step = currentConfig.steps[idx];
+          if (!step) return;
+
+          // update top text
+          statusText.textContent = step.statusText;
+          if (phasePill && currentConfig.phase) {
+            phasePill.textContent = currentConfig.phase;
+          }
+
+          // update progress
+          animateProgressTo(step.progress, 500);
+
+          // update pills
+          metaPills.forEach((pill, pillIndex) => {
+            pill.classList.toggle("active", pillIndex === step.pillIndex);
+          });
+
+          // update right list
+          const allTasks = Array.from(document.querySelectorAll(".task-item"));
+          allTasks.forEach((el, elIndex) => {
+            el.classList.toggle("active", elIndex === idx);
+          });
+        }
+
+        function runAutoSequence() {
+          // If external took over, do not auto advance.
+          if (isExternalControl) return;
+
+          const step = currentConfig.steps[currentStepIndex];
+          if (!step) return;
+
+          setActiveStep(currentStepIndex);
+
+          setTimeout(() => {
+            const nextIndex = currentStepIndex + 1;
+            if (nextIndex < currentConfig.steps.length) {
+              runAutoSequenceAt(nextIndex);
+            } else {
+              // final step - we can hold here, or animate to 100%
+              animateProgressTo(1, 500);
+              footerLeft.textContent = "Ready.";
+            }
+          }, step.durationMs || 1600);
+        }
+
+        function runAutoSequenceAt(index) {
+          currentStepIndex = index;
+          runAutoSequence();
+        }
+
+        // ---------- external API for Electron/preload/main
+        window.splash = {
+          /**
+           * Programmatically set status/progress from the main app.
+           * Example: window.splash.setStatus("Downloading schema…", 0.4, 1)
+           */
+          setStatus(text, progress, stepIndex = null) {
+            isExternalControl = true;
+            if (typeof text === "string") {
+              statusText.textContent = text;
+            }
+            if (typeof progress === "number") {
+              animateProgressTo(progress, 350);
+            }
+            if (typeof stepIndex === "number") {
+              const allTasks = Array.from(document.querySelectorAll(".task-item"));
+              allTasks.forEach((el, idx) => {
+                el.classList.toggle("active", idx === stepIndex);
+              });
+            }
+          },
+          /** Mark splash as ready (100%, footer update) */
+          finish(message = "Ready.") {
+            isExternalControl = true;
+            animateProgressTo(1, 300);
+            footerLeft.textContent = message;
+            statusText.textContent = "Done";
+          },
+          /** For debugging */
+          getConfig() {
+            return currentConfig;
+          }
+        };
+
+        // ---------- attempt to load optional config
+        // splash.config.json shape:
+        // {
+        //   "envText": "Environment: Desktop",
+        //   "footerText": "Starting…",
+        //   "phase": "Starting",
+        //   "steps": [{ id, label, subLabel, statusText, progress, durationMs, pillIndex }]
+        // }
+        fetch("./splash.config.json", { cache: "no-store" })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((json) => {
+            if (json && typeof json === "object") {
+              // shallow merge
+              currentConfig = {
+                ...currentConfig,
+                ...json,
+                steps: Array.isArray(json.steps) && json.steps.length ? json.steps : currentConfig.steps
+              };
+            }
+          })
+          .catch(() => {
+            // ignore, use default
+          })
+          .finally(() => {
+            // apply env + footer
+            if (envLine && currentConfig.envText) {
+              envLine.textContent = currentConfig.envText;
+            }
+            if (footerLeft && currentConfig.footerText) {
+              footerLeft.textContent = currentConfig.footerText;
+            }
+            renderTaskList(currentConfig.steps);
+            // start auto runner
+            runAutoSequence();
+          });
       })();
     </script>
   </body>
