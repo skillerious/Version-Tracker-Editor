@@ -388,8 +388,8 @@ function createSplashWindow() {
     return splashWindow;
   }
   splashWindow = new BrowserWindow({
-    width: 460,
-    height: 540,
+    width: 680,
+    height: 520,
     useContentSize: true,
     resizable: false,
     movable: true,

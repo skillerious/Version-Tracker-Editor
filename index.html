@@ -304,17 +304,21 @@
           <p>Generate JSON on demand, copy or download it for review, and validate URLs before pushing upstream.</p>
         </div>
         <div class="card preview-dashboard">
-          <div class="card-title">Preview</div>
-          <p class="card-subtitle">The preview reflects unsaved edits from the editor tab. Use these actions to export or validate the manifest snapshot.</p>
-          <div class="preview-actions">
-            <div class="preview-action-buttons">
-              <button id="btnCopyJson">Copy JSON</button>
-              <button id="btnSaveJson">Save JSON...</button>
-              <button id="btnValidate">Validate URLs</button>
+          <div class="preview-dashboard-header">
+            <div>
+              <div class="card-title">Preview</div>
+              <p class="card-subtitle">The preview reflects unsaved edits from the editor tab. Use these actions to export or validate the manifest snapshot.</p>
             </div>
-            <div id="previewDatasetStatus" class="preview-status-pill" role="status">Snapshot synced</div>
+            <div class="preview-actions">
+              <div class="preview-action-buttons">
+                <button id="btnCopyJson">Copy JSON</button>
+                <button id="btnSaveJson">Save JSON...</button>
+                <button id="btnValidate">Validate URLs</button>
+              </div>
+              <div id="previewDatasetStatus" class="preview-status-pill" role="status">Snapshot synced</div>
+            </div>
           </div>
-          <div class="preview-grid">
+          <div class="preview-dashboard-body">
             <section class="preview-insights" aria-label="Dataset insights">
               <article class="preview-stat">
                 <span class="preview-stat-label">Apps tracked</span>
@@ -335,6 +339,68 @@
                 <span class="preview-stat-label">History depth</span>
                 <strong id="previewStatHistory" class="preview-stat-value">--</strong>
                 <span id="previewStatHistoryMeta" class="preview-stat-meta muted">History coverage updates automatically.</span>
+              </article>
+            </section>
+            <section class="preview-spotlights" aria-label="Release insights">
+              <article class="preview-panel preview-panel-ready" aria-live="polite">
+                <header class="preview-panel-header">
+                  <div class="preview-panel-title">
+                    <span class="preview-panel-label">Release readiness</span>
+                    <strong id="previewReadyRatio" class="preview-panel-value">0%</strong>
+                  </div>
+                  <span id="previewReadyTotal" class="preview-panel-chip">0 apps</span>
+                </header>
+                <p id="previewReadyMeta" class="preview-panel-meta muted">Add stable release data to start measuring readiness.</p>
+                <div id="previewReadyProgress" class="preview-progress" role="img" aria-live="polite" aria-label="0 of 0 apps ready">
+                  <div class="preview-progress-track">
+                    <div id="previewReadyBar" class="preview-progress-value" style="width:0%"></div>
+                  </div>
+                  <div class="preview-progress-stats">
+                    <div>
+                      <span class="preview-progress-label">Ready</span>
+                      <strong id="previewReadyCount">0</strong>
+                    </div>
+                    <div>
+                      <span class="preview-progress-label">Missing data</span>
+                      <strong id="previewReadyMissing">0</strong>
+                    </div>
+                  </div>
+                </div>
+                <ul class="preview-micro-list">
+                  <li>
+                    <span>Missing stable date</span>
+                    <strong id="previewMissingDates">0</strong>
+                  </li>
+                  <li>
+                    <span>Missing version</span>
+                    <strong id="previewMissingVersions">0</strong>
+                  </li>
+                </ul>
+              </article>
+              <article class="preview-panel preview-panel-timeline" aria-live="polite">
+                <header class="preview-panel-header">
+                  <div class="preview-panel-title">
+                    <span class="preview-panel-label">Timeline watch</span>
+                  </div>
+                  <span id="previewTimelineSummary" class="preview-panel-chip">Awaiting data</span>
+                </header>
+                <div class="preview-timeline-grid">
+                  <div class="preview-timeline-item">
+                    <span class="preview-progress-label">Next release</span>
+                    <strong id="previewTimelineNext" class="preview-timeline-value">--</strong>
+                    <p id="previewTimelineNextMeta" class="preview-panel-meta muted">Add target dates to surface the schedule.</p>
+                  </div>
+                  <div class="preview-timeline-item">
+                    <span class="preview-progress-label">Latest shipped</span>
+                    <strong id="previewTimelineRecent" class="preview-timeline-value">--</strong>
+                    <p id="previewTimelineRecentMeta" class="preview-panel-meta muted">Shipped releases will appear here.</p>
+                  </div>
+                  <div class="preview-timeline-item">
+                    <span class="preview-progress-label">Oldest stale</span>
+                    <strong id="previewTimelineStale" class="preview-timeline-value">--</strong>
+                    <p id="previewTimelineStaleMeta" class="preview-panel-meta muted">No stale releases detected.</p>
+                  </div>
+                </div>
               </article>
             </section>
             <section class="preview-json-panel" aria-label="Manifest JSON preview">

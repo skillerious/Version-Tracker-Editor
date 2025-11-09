@@ -3931,21 +3931,31 @@ function renderPreviewInsights(){
     nextRelease,
     stale,
     undated,
-    stats,
+    stats = { counts: {}, highlights: {} },
     missingVersions,
     missingDates
   } = info;
+  const counts = stats.counts || {};
+  const highlights = stats.highlights || {};
   const formatRatio = (value, total) => `${value}/${total || 0}`;
+  const joinParts = (list, fallback = "") => list.filter(Boolean).join(" • ") || fallback;
+  const totalApps = Number.isFinite(appsCount) ? appsCount : 0;
+  const readyValue = Number.isFinite(readyToShip) ? readyToShip : 0;
+  const readyPercent = totalApps ? Math.round((readyValue / totalApps) * 100) : 0;
+  const readyMissing = Math.max(0, totalApps - readyValue);
+  const upcomingFallback = counts.upcoming
+    ? "Upcoming releases are hidden by filters."
+    : "Add target dates to surface the schedule.";
   const appsValue = $("#previewStatApps");
-  if (appsValue) appsValue.textContent = String(appsCount || 0);
+  if (appsValue) appsValue.textContent = String(totalApps);
   const appsMeta = $("#previewStatAppsMeta");
   if (appsMeta) {
-    if (!appsCount) {
+    if (!totalApps) {
       appsMeta.textContent = "Add an app to start tracking.";
     } else {
-      const parts = [`${readyToShip}/${appsCount} ready to ship`];
+      const parts = [`${readyValue}/${totalApps} ready to ship`];
       if (missingVersions) parts.push(`${missingVersions} missing version${missingVersions === 1 ? "" : "s"}`);
-      appsMeta.textContent = parts.join(" • ");
+      appsMeta.textContent = joinParts(parts);
     }
   }
   const nextValue = $("#previewStatNext");
@@ -3953,19 +3963,21 @@ function renderPreviewInsights(){
   if (nextValue && nextMeta) {
     if (nextRelease) {
       nextValue.textContent = nextRelease.rawDate || nextRelease.month || "--";
-      nextMeta.textContent = `${nextRelease.appName} • ${nextRelease.trackLabel} • ${nextRelease.relative}`;
+      nextMeta.textContent = joinParts([
+        nextRelease.appName,
+        nextRelease.trackLabel,
+        nextRelease.relative
+      ], upcomingFallback);
     } else {
       nextValue.textContent = "--";
-      nextMeta.textContent = stats.counts.upcoming
-        ? "Upcoming releases are hidden by filters."
-        : "Add target dates to surface the schedule.";
+      nextMeta.textContent = upcomingFallback;
     }
   }
   const healthValue = $("#previewStatHealth");
   const healthMeta = $("#previewStatHealthMeta");
   if (healthValue && healthMeta) {
     const issues = stale + undated;
-    if (!appsCount) {
+    if (!totalApps) {
       healthValue.textContent = "--";
       healthMeta.textContent = "Health insights appear after you add data.";
     } else if (!issues) {
@@ -3977,16 +3989,106 @@ function renderPreviewInsights(){
       if (stale) parts.push(`${stale} stale`);
       if (undated) parts.push(`${undated} undated`);
       if (missingDates) parts.push(`${missingDates} stable date${missingDates === 1 ? "" : "s"} missing`);
-      healthMeta.textContent = parts.join(" • ") || "Needs attention";
+      healthMeta.textContent = joinParts(parts, "Needs attention");
     }
   }
   const historyValue = $("#previewStatHistory");
   const historyMeta = $("#previewStatHistoryMeta");
   if (historyValue && historyMeta) {
     historyValue.textContent = historyCount ? String(historyCount) : "--";
-    if (!appsCount) historyMeta.textContent = "History coverage updates automatically.";
-    else historyMeta.textContent = `History entries • beta coverage ${formatRatio(betaCoverage, appsCount)}`;
+    if (!totalApps) historyMeta.textContent = "History coverage updates automatically.";
+    else historyMeta.textContent = `History entries • beta coverage ${formatRatio(betaCoverage, totalApps)}`;
   }
+  const readyRatio = $("#previewReadyRatio");
+  if (readyRatio) readyRatio.textContent = `${readyPercent}%`;
+  const readyTotal = $("#previewReadyTotal");
+  if (readyTotal) readyTotal.textContent = `${totalApps} app${totalApps === 1 ? "" : "s"}`;
+  const readyCount = $("#previewReadyCount");
+  if (readyCount) readyCount.textContent = String(readyValue);
+  const readyMissingEl = $("#previewReadyMissing");
+  if (readyMissingEl) readyMissingEl.textContent = String(readyMissing);
+  const readyBar = $("#previewReadyBar");
+  if (readyBar) readyBar.style.width = `${Math.min(100, Math.max(0, readyPercent))}%`;
+  const readyProgress = $("#previewReadyProgress");
+  if (readyProgress) readyProgress.setAttribute("aria-label", `${readyValue} of ${totalApps} apps ready`);
+  const readyMetaEl = $("#previewReadyMeta");
+  if (readyMetaEl) {
+    let message = "Add apps to start measuring readiness.";
+    if (totalApps) {
+      if (!readyValue) {
+        message = "Provide stable versions and target dates to track readiness.";
+      } else if (readyPercent === 100) {
+        message = "All tracked apps have a dated stable release.";
+      } else {
+        message = `${readyValue} app${readyValue === 1 ? "" : "s"} have both version and date.`;
+      }
+    }
+    readyMetaEl.textContent = message;
+  }
+  const missingDatesEl = $("#previewMissingDates");
+  if (missingDatesEl) missingDatesEl.textContent = String(missingDates || 0);
+  const missingVersionsEl = $("#previewMissingVersions");
+  if (missingVersionsEl) missingVersionsEl.textContent = String(missingVersions || 0);
+  const timelineSummary = $("#previewTimelineSummary");
+  if (timelineSummary) {
+    const summaryParts = [];
+    if (counts.upcoming) summaryParts.push(`${counts.upcoming} upcoming`);
+    if (counts.recent) summaryParts.push(`${counts.recent} recent`);
+    if (counts.stale) summaryParts.push(`${counts.stale} stale`);
+    timelineSummary.textContent = summaryParts.length
+      ? summaryParts.join(" • ")
+      : (totalApps ? "No releases queued" : "Awaiting data");
+  }
+  const describeHighlight = (entry) => {
+    if (!entry) return null;
+    const labelParts = [];
+    if (entry.appName) labelParts.push(entry.appName);
+    if (entry.trackLabel) labelParts.push(entry.trackLabel);
+    const value = labelParts.join(" • ") || entry.statusLabel || "Scheduled";
+    const metaParts = [];
+    if (entry.version) metaParts.push(`v${entry.version}`);
+    if (entry.relative) metaParts.push(entry.relative);
+    if (!metaParts.length && entry.statusLabel) metaParts.push(entry.statusLabel);
+    return { value, meta: metaParts.join(" • ") };
+  };
+  const applyTimelineHighlight = (entry, valueEl, metaEl, fallbackValue, fallbackMeta) => {
+    if (!valueEl || !metaEl) return;
+    const details = describeHighlight(entry);
+    if (!details) {
+      valueEl.textContent = fallbackValue;
+      metaEl.textContent = fallbackMeta;
+      return;
+    }
+    valueEl.textContent = details.value;
+    metaEl.textContent = details.meta || fallbackMeta;
+  };
+  const recentFallback = counts.recent
+    ? "Recent releases are hidden by filters."
+    : "Shipped releases will appear here.";
+  const staleFallback = counts.stale
+    ? "Stale releases are hidden by filters."
+    : "No stale releases detected.";
+  applyTimelineHighlight(
+    nextRelease,
+    $("#previewTimelineNext"),
+    $("#previewTimelineNextMeta"),
+    "--",
+    upcomingFallback
+  );
+  applyTimelineHighlight(
+    highlights.latestRecent,
+    $("#previewTimelineRecent"),
+    $("#previewTimelineRecentMeta"),
+    "--",
+    recentFallback
+  );
+  applyTimelineHighlight(
+    highlights.oldestStale,
+    $("#previewTimelineStale"),
+    $("#previewTimelineStaleMeta"),
+    "--",
+    staleFallback
+  );
   const statusPill = $("#previewDatasetStatus");
   if (statusPill) {
     const dirty = state.formDirty || state.dirty;
