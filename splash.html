@@ -14,7 +14,7 @@
       role="application"
       aria-label="Version Tracker loading screen"
     >
-      <!-- Titlebar (now flush to top) -->
+      <!-- Titlebar -->
       <header class="splash-titlebar">
         <div class="title-left">
           <div class="title-icon" aria-hidden="true">
@@ -38,16 +38,16 @@
           <span class="env-line" data-env-line>Environment: Desktop • GitHub enabled</span>
         </header>
 
-        <!-- 2-column layout -->
         <div class="splash-grid">
-          <section class="card card-progress" aria-label="Startup tasks">
-            <div class="card-header">
+          <div class="startup-layout" aria-label="Startup tasks">
+            <div class="startup-header">
               <div>
                 <h2>Startup tasks</h2>
                 <p>This will only take a moment.</p>
               </div>
               <span class="progress-value" data-progress-label>0%</span>
             </div>
+
             <div class="progress-track" aria-hidden="true">
               <div class="progress-fill"></div>
             </div>
@@ -68,14 +68,31 @@
               </div>
             </div>
 
-            <div class="system-row">
-              <div class="system-chip">
-                <span class="system-dot online"></span>
-                Core services online
-              </div>
-              <div class="system-chip muted" data-footer-left>Loading environment...</div>
+            <!-- fills the space at the bottom -->
+            <div class="activity-panel" aria-label="Current operations">
+              <p class="activity-title">Currently running</p>
+              <ul class="activity-list">
+                <li>
+                  <span class="activity-dot"></span>
+                  Loading interface components…
+                </li>
+                <li>
+                  <span class="activity-dot"></span>
+                  Preparing workspace state…
+                </li>
+                <li data-activity-dynamic>Awaiting core services…</li>
+              </ul>
             </div>
-          </section>
+          </div>
+        </div>
+
+        <!-- bottom pills just above footer -->
+        <div class="bottom-pills" aria-label="System status">
+          <div class="system-chip" data-system-primary>
+            <span class="system-dot online"></span>
+            Core services online
+          </div>
+          <div class="system-chip muted" data-system-secondary>Loading environment…</div>
         </div>
       </main>
 
@@ -92,11 +109,12 @@
         const progressFill = document.querySelector(".progress-fill");
         const progressLabel = document.querySelector("[data-progress-label]");
         const metaPills = Array.from(document.querySelectorAll(".meta-pill"));
-        const taskListEl = document.querySelector("[data-task-list]");
         const phasePill = document.querySelector("[data-phase-pill]");
-        const footerLeftInline = document.querySelector("[data-footer-left-inline]");
-        const footerLeftChip = document.querySelector("[data-footer-left]");
         const envLine = document.querySelector("[data-env-line]");
+        const footerLeftInline = document.querySelector("[data-footer-left-inline]");
+        const systemPrimary = document.querySelector("[data-system-primary]");
+        const systemSecondary = document.querySelector("[data-system-secondary]");
+        const activityDynamic = document.querySelector("[data-activity-dynamic]");
 
         const DEFAULT_CONFIG = {
           envText: "Environment: Desktop • GitHub enabled",
@@ -172,49 +190,39 @@
           progressAnimFrame = requestAnimationFrame(frame);
         }
 
-        function renderTaskList(steps) {
-          if (!taskListEl) return;
-          taskListEl.innerHTML = "";
-          steps.forEach((step, index) => {
-            const li = document.createElement("li");
-            li.className = "task-item" + (index === 0 ? " active" : "");
-            li.dataset.stepId = step.id;
-            li.innerHTML = `
-              <div class="task-bullet" aria-hidden="true"></div>
-              <div class="task-text">
-                <span class="task-title">${step.label}</span>
-                <span class="task-sub">${step.subLabel || ""}</span>
-              </div>
-            `;
-            taskListEl.appendChild(li);
-          });
-        }
-
         function setActiveStep(idx) {
           currentStepIndex = idx;
           const step = currentConfig.steps[idx];
           if (!step) return;
 
+          // status line under title
           statusText.textContent = step.statusText;
+
+          // main phase pill
           if (phasePill && currentConfig.phase) {
             phasePill.textContent = currentConfig.phase;
           }
 
+          // progress
           animateProgressTo(step.progress, 420);
 
+          // highlight correct pill (clamped to available ones)
           metaPills.forEach((pill, pillIndex) => {
-            pill.classList.toggle("active", pillIndex === step.pillIndex);
+            const active =
+              typeof step.pillIndex === "number"
+                ? step.pillIndex === pillIndex
+                : pillIndex === idx;
+            pill.classList.toggle("active", active);
           });
 
-          const allTasks = Array.from(document.querySelectorAll(".task-item"));
-          allTasks.forEach((el, elIndex) => {
-            el.classList.toggle("active", elIndex === idx);
-          });
+          // reflect in activity panel
+          if (activityDynamic) {
+            activityDynamic.textContent = step.statusText || step.label || "Working…";
+          }
         }
 
         function runAutoSequence() {
           if (isExternalControl) return;
-
           const step = currentConfig.steps[currentStepIndex];
           if (!step) return;
 
@@ -226,29 +234,26 @@
               currentStepIndex = nextIndex;
               runAutoSequence();
             } else {
+              // finished
               animateProgressTo(1, 380);
               statusText.textContent = "Done";
               if (footerLeftInline) footerLeftInline.textContent = "Ready.";
-              if (footerLeftChip) footerLeftChip.textContent = "Ready.";
+              if (systemSecondary) systemSecondary.textContent = "Ready.";
+              if (activityDynamic) activityDynamic.textContent = "Environment initialised.";
             }
           }, step.durationMs || 1200);
         }
 
         // external control API
         window.splash = {
-          setStatus(text, progress, stepIndex = null) {
+          setStatus(text, progress) {
             isExternalControl = true;
             if (typeof text === "string") {
               statusText.textContent = text;
+              if (activityDynamic) activityDynamic.textContent = text;
             }
             if (typeof progress === "number") {
               animateProgressTo(progress, 300);
-            }
-            if (typeof stepIndex === "number") {
-              const allTasks = Array.from(document.querySelectorAll(".task-item"));
-              allTasks.forEach((el, idx) => {
-                el.classList.toggle("active", idx === stepIndex);
-              });
             }
           },
           finish(message = "Ready.") {
@@ -256,14 +261,15 @@
             animateProgressTo(1, 280);
             statusText.textContent = "Done";
             if (footerLeftInline) footerLeftInline.textContent = message;
-            if (footerLeftChip) footerLeftChip.textContent = message;
+            if (systemSecondary) systemSecondary.textContent = message;
+            if (activityDynamic) activityDynamic.textContent = message;
           },
           getConfig() {
             return currentConfig;
           }
         };
 
-        // splash.config.json (optional)
+        // load optional JSON override
         fetch("./splash.config.json", { cache: "no-store" })
           .then((res) => (res.ok ? res.json() : null))
           .then((json) => {
@@ -271,24 +277,32 @@
               currentConfig = {
                 ...currentConfig,
                 ...json,
-                steps: Array.isArray(json.steps) && json.steps.length ? json.steps : currentConfig.steps
+                steps:
+                  Array.isArray(json.steps) && json.steps.length
+                    ? json.steps
+                    : currentConfig.steps
               };
             }
           })
           .catch(() => {})
           .finally(() => {
+            // apply env/footer from config
             if (envLine && currentConfig.envText) {
               envLine.textContent = currentConfig.envText;
             }
             if (footerLeftInline && currentConfig.footerText) {
               footerLeftInline.textContent = currentConfig.footerText;
             }
-            if (footerLeftChip && currentConfig.footerText) {
-              footerLeftChip.textContent = currentConfig.footerText;
+            if (systemSecondary && currentConfig.footerText) {
+              systemSecondary.textContent = currentConfig.footerText;
             }
-            renderTaskList(currentConfig.steps);
             runAutoSequence();
           });
+
+        // accessibility
+        if (systemPrimary) {
+          systemPrimary.setAttribute("aria-live", "polite");
+        }
       })();
     </script>
   </body>

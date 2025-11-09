@@ -8,14 +8,20 @@
   --muted: rgba(238, 244, 255, 0.55);
   --muted-2: rgba(238, 244, 255, 0.32);
   --accent: #0e85ff;
-  --radius: 11px;
+  --radius: 18px;
 
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont,
     sans-serif;
   font-size: 16px;
 }
 
-/* pin to top, no outer scroll */
+/* make padding not overflow */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 html,
 body {
   height: 100%;
@@ -25,25 +31,25 @@ body {
 
 body {
   margin: 0;
-  display: block;
   color: var(--text);
   -webkit-font-smoothing: antialiased;
 }
 
-/* shell */
 .splash-window {
+  position: relative;
   width: min(680px, 100vw);
   height: min(520px, 100vh);
-  background: radial-gradient(circle at top, #13161b 0%, #0b0d10 35%, #08090b 100%);
+  background: #090a0c;
   border: 1px solid rgba(255, 255, 255, 0.02);
-  border-radius: 18px;
-  overflow: hidden;
+  border-radius: var(--radius);
+  overflow: clip; /* hard clip to avoid faint sharp corner */
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55);
   display: flex;
   flex-direction: column;
+  backdrop-filter: blur(8px);
 }
 
-/* titlebar flush */
+/* Titlebar */
 .splash-titlebar {
   height: 46px;
   background: linear-gradient(90deg, #18191e 0%, #111218 100%);
@@ -74,6 +80,7 @@ body {
 .title-icon img {
   width: 18px;
   height: 18px;
+  pointer-events: none;
 }
 
 .title-text {
@@ -101,17 +108,27 @@ body {
   font-size: 0.6rem;
 }
 
-/* body */
+/* main body: full width + padding + image */
 .splash-body {
-  padding: 12px 18px 30px;
+  position: relative;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 14px;
-  flex: 1 1 auto;
-  min-height: 0;
-  width: 100%;
-  max-width: 600px;
-  margin: 0 auto;
+  padding: 12px 16px 0 16px;
+  background:
+    linear-gradient(160deg, rgba(1, 1, 1, 0) 0%, rgba(1, 1, 1, 0.55) 32%, #060708 85%),
+    url("./assets/splash.png") center right / cover no-repeat;
+  background-color: #08090b;
+  background-blend-mode: normal;
+}
+
+.primary-header {
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(2px);
 }
 
 .primary-header h1 {
@@ -129,7 +146,7 @@ body {
 .env-line {
   display: inline-flex;
   margin-top: 5px;
-  background: rgba(255, 255, 255, 0.01);
+  background: rgba(6, 7, 8, 0.43);
   border: 1px solid rgba(255, 255, 255, 0.012);
   border-radius: 999px;
   padding: 3px 10px 2px;
@@ -137,7 +154,7 @@ body {
   color: rgba(238, 244, 255, 0.4);
 }
 
-/* 2-column area */
+/* main layout */
 .splash-grid {
   flex: 1 1 auto;
   min-height: 0;
@@ -147,25 +164,28 @@ body {
   align-items: stretch;
 }
 
-/* cards */
-.card {
-  background: rgba(19, 20, 24, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.018);
-  border-radius: 14px;
-  padding: 12px 14px 16px;
+/* startup card */
+.startup-layout {
   display: flex;
   flex-direction: column;
-  min-height: 0;
+  gap: 18px;
+  width: 100%;
+  background: rgba(5, 6, 7, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.012);
+  border-radius: 14px;
+  padding: 12px 14px 14px;
+  backdrop-filter: blur(6px);
+  min-height: 230px;
 }
 
-.card-header {
+.startup-header {
   display: flex;
   justify-content: space-between;
-  gap: 10px;
   align-items: flex-start;
+  gap: 10px;
 }
 
-.card-header h2 {
+.startup-header h2 {
   font-size: 0.64rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -173,23 +193,19 @@ body {
   color: rgba(238, 244, 255, 0.78);
 }
 
-.card-header p {
+.startup-header p {
   margin: 2px 0 0;
   font-size: 0.58rem;
   color: rgba(238, 244, 255, 0.32);
 }
 
-/* progress card */
-.card-progress {
-  gap: 10px;
-}
-
 .progress-track {
   width: 100%;
   height: 3px;
-  background: rgba(5, 5, 5, 0.35);
+  background: rgba(5, 5, 5, 0.25);
   border-radius: 999px;
   overflow: hidden;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
 }
 
 .progress-fill {
@@ -204,12 +220,11 @@ body {
   color: rgba(238, 244, 255, 0.6);
 }
 
-/* vertical meta */
+/* vertical pill list */
 .meta-column {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 6px;
 }
 
 .meta-pill {
@@ -219,12 +234,8 @@ body {
   padding: 10px 12px;
   border-radius: 11px;
   border: 1px solid rgba(255, 255, 255, 0.02);
-  background: rgba(8, 10, 15, 0.7);
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  transition: border-color 220ms ease, box-shadow 220ms ease, background 250ms ease,
-    transform 200ms ease;
+  background: rgba(8, 10, 15, 0.6);
+  transition: border-color 220ms ease, background 250ms ease, transform 200ms ease;
 }
 
 .meta-pill::before {
@@ -235,36 +246,17 @@ body {
   border: 2px solid rgba(238, 244, 255, 0.25);
   background: rgba(8, 10, 15, 0.3);
   flex: 0 0 auto;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
-}
-
-.meta-pill::after {
-  content: "";
-  position: absolute;
-  inset: -2px;
-  background: linear-gradient(120deg, transparent, rgba(14, 133, 255, 0.55), transparent);
-  opacity: 0;
-  transform: translateX(-60%);
-  filter: blur(0.5px);
-  transition: opacity 240ms ease;
-  pointer-events: none;
-  z-index: 0;
 }
 
 .meta-pill.active {
   background: rgba(14, 133, 255, 0.15);
   border-color: rgba(14, 133, 255, 0.45);
-  box-shadow: 0 0 0 1px rgba(14, 133, 255, 0.2), inset 0 -25px 40px rgba(14, 133, 255, 0.08);
-  transform: translateX(3px);
+  transform: translateX(2px);
 }
 .meta-pill.active::before {
   background: #0e85ff;
   border-color: rgba(238, 244, 255, 0.95);
   animation: taskPulse 2.2s ease-in-out infinite;
-}
-.meta-pill.active::after {
-  opacity: 1;
-  animation: taskShimmer 2.8s linear infinite;
 }
 
 .meta-pill .meta-title {
@@ -276,25 +268,6 @@ body {
 .meta-pill .meta-sub {
   font-size: 0.53rem;
   color: rgba(238, 244, 255, 0.5);
-}
-
-.meta-pill > * {
-  position: relative;
-  z-index: 1;
-}
-
-@keyframes taskShimmer {
-  0% {
-    transform: translateX(-70%);
-    opacity: 0.1;
-  }
-  30% {
-    opacity: 0.4;
-  }
-  100% {
-    transform: translateX(120%);
-    opacity: 0;
-  }
 }
 
 @keyframes taskPulse {
@@ -309,22 +282,56 @@ body {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .meta-pill.active::before,
-  .meta-pill.active::after {
-    animation: none !important;
-  }
+/* activity panel – fills blank space */
+.activity-panel {
+  margin-top: auto;
+  background: rgba(2, 2, 3, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.01);
+  border-radius: 10px;
+  padding: 7px 9px 8px;
 }
 
-/* system row */
-.system-row {
+.activity-title {
+  font-size: 0.53rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 0 6px;
+  color: rgba(238, 244, 255, 0.45);
+}
+
+.activity-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.activity-list li {
   display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
   align-items: center;
+  gap: 6px;
+  font-size: 0.54rem;
+  color: rgba(238, 244, 255, 0.75);
+  min-height: 14px;
+}
+
+.activity-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #0e85ff;
+  box-shadow: 0 0 5px rgba(14, 133, 255, 0.5);
+  flex: 0 0 auto;
+}
+
+/* status pills just above footer */
+.bottom-pills {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 0 10px;
   margin-top: auto;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.02);
 }
 
 .system-chip {
@@ -336,6 +343,7 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  white-space: nowrap;
 }
 
 .system-chip.muted {
@@ -374,12 +382,15 @@ body {
   white-space: nowrap;
 }
 
-/* responsive fallback */
+/* responsive */
 @media (max-width: 720px) {
   .splash-window {
     width: 100vw;
   }
-  .splash-grid {
-    grid-template-columns: 1fr;
+  .splash-body {
+    padding-inline: 12px;
+  }
+  .bottom-pills {
+    flex-wrap: wrap;
   }
 }
