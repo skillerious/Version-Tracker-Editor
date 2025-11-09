@@ -32,7 +32,6 @@
 
 https://github.com/user-attachments/assets/de25a675-e95b-4c80-b96b-c871aadac39a
 
-
 ---
 
 > **Version Tracker** is your all-in-one release command centre. Pull the latest manifest from GitHub, curate <code>repoversion.json</code> with precision, capture every change with real-time validation and preview, generate shareable insights for your team, and publish confidently — without ever leaving your desktop workflow.
@@ -98,13 +97,13 @@ https://github.com/user-attachments/assets/de25a675-e95b-4c80-b96b-c871aadac39a
 
 ## 🖼 Screenshots
 
-| Main editor | Release calendar |
-|-------------|------------------|
-| ![Main editor](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-05-235510.png) | ![Release calendar](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-05-235525.png) |
+| Editor dashboard | Contextual menu |
+|------------------|-----------------|
+| ![Editor dashboard](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-09-222012.png) | ![Contextual menu](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-09-222027.png) |
 
-| About dialog | Token dialog | Settings dialog |
-|--------------|--------------|-----------------|
-| ![About dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-06-000228.png) | ![Token dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-05-235456.png) | ![Settings dialog](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-05-235547.png) |
+| Preview dashboard | Calendar dashboard | Settings dashboard |
+|-------------------|--------------------|--------------------|
+| ![Preview dashboard](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-09-222042.png) | ![Calendar dashboard](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-09-222058.png) | ![Settings dashboard](https://raw.githubusercontent.com/Skillerious87/SwiftImageHost/main/images/TargetTracker/VersionTrackerScreenShots/Screenshot-2025-11-09-222112.png) |
 
 ---
 
